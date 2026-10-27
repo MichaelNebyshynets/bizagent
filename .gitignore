@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+
+# Настройки и секреты (у каждого свои, шаблон — .env.example)
+.env
+
+# Файлы, которые пользователи загружают в чат
+uploaded_files/
+
+# Система и редакторы
+.DS_Store
+.idea/
+.vscode/
+*.log
