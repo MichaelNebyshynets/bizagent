@@ -1,81 +1,102 @@
 import { useState } from 'react'
 
+const DEMO = [
+  ['owner@uyut.by', 'Владелец, Уютный дом'],
+  ['manager@uyut.by', 'Менеджер, Уютный дом'],
+  ['accountant@uyut.by', 'Бухгалтер, Уютный дом'],
+  ['owner@flora.by', 'Владелец, Флора'],
+]
+
 export function Login({ onLogin }) {
-  const [email, setEmail] = useState('owner@uyut.by')
+  const [email, setEmail] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
+  const login = async (value) => {
+    const address = value.trim()
+    if (!/^\S+@\S+\.\S+$/.test(address)) {
+      setError('Введите email в формате name@company.by')
+      return
+    }
     setError('')
     setLoading(true)
-
     try {
       const response = await fetch('http://localhost:8000/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() }),
+        body: JSON.stringify({ email: address }),
       })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.detail || 'Пользователь не найден или ошибка сервера')
+      let data = await response.json()
+      // Бэкенд в режиме mock (без Postgres) отвечает 503: для демо-аккаунтов входим по демо-токену
+      if (response.status === 503 && DEMO.some(([a]) => a === address.toLowerCase())) {
+        const [user, domain] = address.toLowerCase().split('@')
+        const role = user // owner / manager / accountant
+        data = { access_token: `demo-${role}-${domain.split('.')[0]}`, role, name: DEMO.find(([a]) => a === address.toLowerCase())[1] }
+      } else if (!response.ok) {
+        throw new Error(data.detail || 'Такого пользователя нет. Проверьте адрес или войдите через демо-аккаунт.')
       }
-
       localStorage.setItem('auth_token', data.access_token)
       localStorage.setItem('user_name', data.name)
       localStorage.setItem('user_role', data.role)
-      
+      localStorage.setItem('user_email', address.toLowerCase())
       onLogin(data)
     } catch (err) {
       console.error('Login error:', err)
-      setError(err.message || 'Ошибка подключения к бэкенду')
+      setError(err.message === 'Failed to fetch'
+        ? 'Сервер не отвечает. Проверьте, что бэкенд запущен на порту 8000.'
+        : err.message)
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#14161b', color: '#e2e8f0' }}>
-      <div className="card" style={{ width: '100%', maxWidth: '420px', padding: '32px', background: '#1f2228', border: '1px solid #30353e', borderRadius: '12px' }}>
-        <h2 style={{ marginBottom: '8px', fontSize: '20px', color: '#fff' }}>Вход в Бизнес<b>Помощник</b></h2>
-        <p className="sub" style={{ marginBottom: '24px' }}>Введите ваш email для авторизации</p>
+    <div className="login">
+      <div className="login-side">
+        <div className="brand"><span className="brand-mark">Б</span>БизнесПомощник</div>
+        <div>
+          <h2>Учёт, цифры и законы для малого бизнеса в Беларуси</h2>
+          <ol>
+            <li><span className="tick">1</span><div><b>Заполните профиль компании</b><span>УНП, форма и налоговый режим. От них зависят ответы.</span></div></li>
+            <li><span className="tick">2</span><div><b>Посмотрите сводку и аналитику</b><span>Выручка, склад, ближайшие сроки отчётности.</span></div></li>
+            <li><span className="tick">3</span><div><b>Спросите ассистента</b><span>Он считает по вашим данным, а записи вносит только после вашего подтверждения.</span></div></li>
+          </ol>
+        </div>
+        <p className="small" style={{ opacity: 0.7 }}>Справка по законодательству не заменяет консультацию юриста.</p>
+      </div>
 
-        {error && (
-          <div style={{ color: '#ff4d4d', background: 'rgba(255,77,77,0.1)', padding: '10px 12px', borderRadius: '6px', marginBottom: '16px', fontSize: '13px', border: '1px solid rgba(255,77,77,0.3)' }}>
-            {error}
-          </div>
-        )}
+      <div className="login-main">
+        <form className="login-box" onSubmit={(e) => { e.preventDefault(); login(email) }} noValidate>
+          <h1>Вход</h1>
+          <p className="muted" style={{ margin: '6px 0 20px' }}>Войдите рабочим email, чтобы открыть данные своей компании.</p>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div>
-            <div className="k" style={{ marginBottom: '6px', fontSize: '13px', color: '#8f96a3' }}>Email пользователя</div>
+          {error && <div className="form-err" role="alert">{error}</div>}
+
+          <div className="field">
+            <label htmlFor="email">Email</label>
             <input
+              id="email"
+              className={`input ${error ? 'invalid' : ''}`}
               type="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="owner@uyut.by"
-              required
-              className="f"
-              style={{ width: '100%', padding: '10px 12px', background: '#14161b', border: '1px solid #30353e', borderRadius: '6px', color: '#fff' }}
+              placeholder="name@company.by"
             />
           </div>
-
-          <button type="submit" disabled={loading} className="btn" style={{ width: '100%', padding: '12px', cursor: 'pointer', fontWeight: 'bold' }}>
-            {loading ? 'Вход...' : 'Войти'}
+          <button type="submit" className="btn" disabled={loading} style={{ width: '100%', marginTop: 16, height: 38 }}>
+            {loading ? 'Входим…' : 'Войти'}
           </button>
-        </form>
 
-        <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #30353e', fontSize: '12px', color: '#8f96a3' }} className="src">
-          <p style={{ marginBottom: '8px' }}><strong>Тестовые аккаунты:</strong></p>
-          <ul style={{ paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <li><code>owner@uyut.by</code> — Владелец (Уютный дом)</li>
-            <li><code>manager@uyut.by</code> — Менеджер (Уютный дом)</li>
-            <li><code>accountant@uyut.by</code> — Бухгалтер (Уютный дом)</li>
-            <li><code>owner@flora.by</code> — Владелец (Флора)</li>
-          </ul>
-        </div>
+          <div className="demo">
+            <div className="small muted">Демо-аккаунты, вход в один клик</div>
+            {DEMO.map(([address, who]) => (
+              <button key={address} type="button" className="demo-acc" disabled={loading} onClick={() => { setEmail(address); login(address) }}>
+                <b>{address}</b><span>{who}</span>
+              </button>
+            ))}
+          </div>
+        </form>
       </div>
     </div>
   )

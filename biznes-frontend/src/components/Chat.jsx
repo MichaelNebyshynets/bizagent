@@ -63,7 +63,27 @@ const fromServer = (m) => ({
   pending_actions: m.pending_actions || [],
 });
 
-export default function Chat({ initial, clear }) {
+// Названия инструментов агента → понятные пользователю подписи «Смотрел: …»
+const TOOL_RU = {
+  get_sales_summary: 'сводка продаж', compare_periods: 'сравнение периодов', get_top_products: 'топ товаров',
+  get_product_sales_history: 'история продаж товара', find_product: 'каталог товаров', list_low_stock: 'остатки склада',
+  list_slow_movers: 'залежавшиеся товары', find_client: 'клиенты', get_profit_summary: 'прибыль',
+  search_knowledge_base: 'база знаний', list_uploaded_files: 'загруженные файлы', read_uploaded_file: 'приложенный файл',
+  create_client: 'создание клиента', create_order: 'создание заказа', record_expense: 'запись расхода',
+};
+const toolRu = (t) => {
+  const failed = t.endsWith(' ✗');
+  const name = failed ? t.slice(0, -2) : t;
+  return (TOOL_RU[name] || name) + (failed ? ' (ошибка)' : '');
+};
+
+const EXAMPLES = [
+  ['Разобраться в цифрах', 'Продажи, склад, клиенты', ['Почему упала выручка в сентябре?', 'Что заканчивается на складе?']],
+  ['Внести запись', 'Клиент, заказ, расход. Только после вашего подтверждения', ['Создай клиента Мария Ковальчук, телефон +375 29 123-45-67', 'Запиши расход на аренду 1200 BYN']],
+  ['Вопрос по законам РБ', 'Ответ со ссылкой на документ', ['Какую форму налогообложения выбрать?', 'Какие взносы платит ИП в ФСЗН?']],
+];
+
+export default function Chat({ initial, clear, company, onEvent }) {
   // История чатов хранится на сервере у каждого пользователя своя, в браузере ничего не храним
   const [chats, setChats] = useState([]); // [{id, title, updated_at}]
   const [activeId, setActiveId] = useState(null); // null — новый чат, ещё не отправлен
@@ -176,6 +196,7 @@ export default function Chat({ initial, clear }) {
         data = await post(null);
       }
       setActiveId(data.conversation_id);
+      onEvent?.('ask');
       push(fromServer({ role: 'assistant', content: data.message || 'Ответ получен без содержимого.', trace: data.trace, pending_actions: data.pending_actions }));
       loadChats();
     } catch (error) {
@@ -205,6 +226,7 @@ export default function Chat({ initial, clear }) {
     try {
       const data = await api('/agent/upload', { method: 'POST', body: formData });
       setUploadedFile(data.filename);
+      onEvent?.('upload');
       setAttachments((prev) => [...prev, { file_id: data.file_id, filename: data.filename }]);
       push({ role: 'assistant', content: `${data.message} Файл приложится к следующему сообщению.` });
     } catch (error) {
@@ -243,154 +265,177 @@ export default function Chat({ initial, clear }) {
     uploadFile(e.dataTransfer.files?.[0]);
   };
 
-  return (
-    <section className="on">
-      <h1>ИИ-ассистент</h1>
-      <p className="sub">Данные только из инструментов, записи только после вашего подтверждения</p>
+  const busy = loading || uploading || opening;
+  const autoGrow = (el) => { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 160) + 'px'; };
 
-      <div className="chat">
-        <div className="card chat-main">
+  return (
+    <section>
+      {company && (
+        <div className="crumbs">{company} / Ассистент</div>
+      )}
+      <div className="page-head">
+        <div>
+          <h1>Ассистент</h1>
+          <p>Отвечает по данным вашей компании и документам базы знаний. Записи вносит только после вашего подтверждения.</p>
+        </div>
+      </div>
+
+      <div className="panel chat">
+        <div className="chat-list">
+          <div className="panel-head">
+            <h2>Чаты</h2>
+            <button className="btn sm secondary" onClick={newChat} disabled={loading}>+ Новый</button>
+          </div>
+          <div className="chat-items">
+            {chats.length === 0 && <div className="small muted" style={{ padding: '8px 10px' }}>Пока нет сохранённых чатов</div>}
+            {chats.map((c) => (
+              <div
+                key={c.id}
+                className={`chat-item ${c.id === activeId ? 'on' : ''}`}
+                onClick={() => c.id !== activeId && openChat(c.id)}
+                title={c.title}
+              >
+                <div className="t">
+                  {c.title}
+                  <div className="d">{dateRu(c.updated_at)}</div>
+                </div>
+                <button
+                  className="x"
+                  title="Удалить чат"
+                  aria-label={`Удалить чат «${c.title}»`}
+                  onClick={(e) => { e.stopPropagation(); deleteChat(c); }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div
+          className={`conv ${dragOver ? 'drag' : ''}`}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false); }}
+          onDrop={onDrop}
+        >
           <div className="msgs" ref={msgsRef}>
-            {opening && <div className="src">Загрузка чата…</div>}
+            {opening && <div className="typing">Загрузка чата…</div>}
 
             {!opening && messages.length === 0 && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <div className="chip" onClick={() => sendMessage('Почему упала выручка в сентябре?')} style={{ cursor: 'pointer' }}>
-                  Почему упала выручка в сентябре?
+              <div className="empty">
+                <h2>С чем помочь?</h2>
+                <p className="muted">Напишите вопрос или выберите пример. Файл можно перетащить прямо сюда.</p>
+                <div className="modes">
+                  {EXAMPLES.map(([title, sub, qs]) => (
+                    <div className="mode" key={title}>
+                      <h3>{title}</h3>
+                      <p>{sub}</p>
+                      {qs.map((q) => <button key={q} className="chip" onClick={() => sendMessage(q)} disabled={busy}>{q}</button>)}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
 
             {messages.map((m, idx) => (
-              <div key={idx} className={`m ${m.role === 'user' ? 'me' : ''}`} style={m.isError ? { color: 'var(--bad)' } : undefined}>
+              <div key={idx} className={`m ${m.role === 'user' ? 'me' : ''} ${m.isError ? 'err' : ''}`}>
+                {m.role === 'assistant' && (
+                  <div className="who"><span className="brand-mark">Б</span>Ассистент</div>
+                )}
                 {m.role === 'assistant' && !m.isError ? (
                   // Ответ модели в markdown. Сырой HTML react-markdown не выполняет: это безопасно
-                  <div className="md">
+                  <div className="md body">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                   </div>
                 ) : (
-                  <div style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div>
+                  <div className="body" style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div>
                 )}
-
-                {m.files && m.files.length > 0 && <div className="src">📎 {m.files.join(', ')}</div>}
-
-                {m.trace && m.trace.length > 0 && <div className="src">🔧 {m.trace.join(' · ')}</div>}
-
+                {m.files && m.files.length > 0 && <div className="src">Файлы: {m.files.join(', ')}</div>}
+                {m.trace && m.trace.length > 0 && <div className="src">Смотрел: {m.trace.map(toolRu).join(', ')}</div>}
                 {m.pending_actions?.map((a) => (
-                  <div className="pend" key={a.id}>
+                  <div className={`pend ${a.status === 'confirmed' ? 'done' : a.status === 'pending' || a.status === 'busy' ? '' : 'off'}`} key={a.id}>
                     <b>{a.summary}</b>
-                    <div className="src">
-                      {a.status === 'pending' ? `Ожидает подтверждения до ${timeRu(a.expires_at)}` : STATUS_TEXT[a.status]}
+                    <div className="meta">
+                      {a.status === 'pending'
+                        ? `В учёт ничего не попадёт, пока вы не подтвердите. Действует до ${timeRu(a.expires_at)}.`
+                        : STATUS_TEXT[a.status]}
                     </div>
                     {a.status === 'pending' && (
-                      <div className="row">
-                        <button className="btn" onClick={() => handleAction(idx, a, 'confirm')}>
-                          Подтвердить
-                        </button>
-                        <button className="btn ghost" onClick={() => handleAction(idx, a, 'reject')}>
-                          Отклонить
-                        </button>
+                      <div className="actions">
+                        <button className="btn sm" onClick={() => handleAction(idx, a, 'confirm')}>Подтвердить</button>
+                        <button className="btn sm secondary" onClick={() => handleAction(idx, a, 'reject')}>Отклонить</button>
                       </div>
                     )}
                   </div>
                 ))}
               </div>
             ))}
-            {loading && <div className="m">Ассистент думает...</div>}
+            {loading && <div className="typing">Ассистент считает по вашим данным…</div>}
+            {uploading && <div className="typing">Загружаем файл…</div>}
           </div>
 
-          {attachments.length > 0 && (
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '14px' }}>
-              {attachments.map((f) => (
-                <span
-                  key={f.file_id}
-                  className="chip"
-                  title="Не прикладывать к сообщению"
-                  onClick={() => setAttachments((prev) => prev.filter((x) => x.file_id !== f.file_id))}
-                >
-                  📎 {f.filename} ×
-                </span>
-              ))}
-            </div>
-          )}
-
-          <div className="box" style={{ marginTop: '14px' }}>
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={attachments.length ? 'Что сделать с файлом?' : 'Напишите сообщение…'}
-              onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-            />
-            <button className="btn" onClick={() => sendMessage()} disabled={loading || uploading || opening}>
-              Отправить
-            </button>
-          </div>
-        </div>
-
-        <div className="chat-side">
-          <div className="card side chats-card">
-            <div className="head">
-              <h2>Чаты</h2>
-              <button className="btn ghost" onClick={newChat} disabled={loading}>
-                + Новый
-              </button>
-            </div>
-            <div className="chats">
-              {chats.length === 0 && <div className="src">Пока нет сохранённых чатов</div>}
-              {chats.map((c) => (
-                <div
-                  key={c.id}
-                  className={`chat-item ${c.id === activeId ? 'on' : ''}`}
-                  onClick={() => c.id !== activeId && openChat(c.id)}
-                  title={c.title}
-                >
-                  <div className="t">
-                    {c.title}
-                    <div className="d">{dateRu(c.updated_at)}</div>
-                  </div>
+          <div className="composer">
+            {attachments.length > 0 && (
+              <div className="attach-row">
+                {attachments.map((f) => (
                   <button
-                    className="x"
-                    title="Удалить чат"
-                    onClick={(e) => { e.stopPropagation(); deleteChat(c); }}
+                    key={f.file_id}
+                    className="chip"
+                    title="Не прикладывать к сообщению"
+                    onClick={() => setAttachments((prev) => prev.filter((x) => x.file_id !== f.file_id))}
                   >
-                    ×
+                    {f.filename} ✕
                   </button>
-                </div>
-              ))}
+                ))}
+              </div>
+            )}
+
+            <form className="comp-box" onSubmit={(e) => { e.preventDefault(); sendMessage(); }}>
+              <input
+                type="file"
+                accept={ACCEPT}
+                ref={fileInputRef}
+                style={{ display: 'none' }}
+                onChange={(e) => uploadFile(e.target.files[0])}
+              />
+              <button
+                type="button"
+                className="btn ghost icon"
+                title="Приложить файл"
+                aria-label="Приложить файл"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M20 11l-8.5 8.5a5 5 0 0 1-7-7L13 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L14 7" /></svg>
+              </button>
+              <select
+                value={contextCategory}
+                onChange={(e) => setContextCategory(e.target.value)}
+                title="Категория файла"
+                aria-label="Категория файла"
+              >
+                <option>Все</option>
+                <option>Налоги</option>
+                <option>Продажи</option>
+                <option>Право</option>
+                <option>Склад</option>
+              </select>
+              <textarea
+                rows={1}
+                value={input}
+                onChange={(e) => { setInput(e.target.value); autoGrow(e.target); }}
+                placeholder={attachments.length ? 'Что сделать с файлом?' : 'Напишите вопрос'}
+                aria-label="Сообщение"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+                }}
+              />
+              <button type="submit" className="btn" disabled={busy}>Отправить</button>
+            </form>
+            <div className="comp-hint">
+              <span>Enter — отправить, Shift+Enter — новая строка</span>
+              <span>{uploadedFile ? `Последний файл: ${uploadedFile}` : `Файлы: txt, csv, xlsx, docx, pdf до ${MAX_MB} МБ, не больше ${MAX_FILES}`}</span>
             </div>
-          </div>
-
-          <div className="card side">
-            <h2>Контекст</h2>
-            <label>Категория</label>
-            <select className="f" value={contextCategory} onChange={(e) => setContextCategory(e.target.value)}>
-              <option>Все</option>
-              <option>Налоги</option>
-              <option>Продажи</option>
-              <option>Право</option>
-              <option>Склад</option>
-            </select>
-            <label>Файл</label>
-
-            <input
-              type="file"
-              accept={ACCEPT}
-              ref={fileInputRef}
-              style={{ display: 'none' }}
-              onChange={(e) => uploadFile(e.target.files[0])}
-            />
-
-            <div
-              className="drop"
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={onDrop}
-              style={{ cursor: 'pointer', ...(dragOver ? { borderColor: 'var(--acc)' } : {}) }}
-            >
-              {uploading ? 'Загрузка…' : uploadedFile ? `Загружено: ${uploadedFile}` : 'Перетащите устав, отчёт или бизнес-план'}
-            </div>
-            <div className="src">txt, csv, xlsx, docx, pdf · до {MAX_MB} МБ</div>
           </div>
         </div>
       </div>
