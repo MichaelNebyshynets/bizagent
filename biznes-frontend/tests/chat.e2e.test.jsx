@@ -49,12 +49,12 @@ describe('Chat.jsx + живой бэкенд', () => {
       target: { files: [new File(['Товар;Выручка\nПлед флисовый;39,90\n'], 'sales.csv', { type: 'text/csv' })] },
     });
     await screen.findByText(/загружен .*Файл приложится к следующему сообщению/, {}, T);
-    expect(screen.getByText('📎 sales.csv ×')).toBeTruthy();
+    expect(screen.getByText('sales.csv ✕')).toBeTruthy();
 
     type('Что в файле?');
     send();
     await screen.findByText(/Плед флисовый;39,90/, {}, T);
-    expect(screen.getByText('🔧 read_uploaded_file')).toBeTruthy();
+    expect(screen.getByText('Смотрел: приложенный файл')).toBeTruthy();
     expect(seen.find((r) => r.url.endsWith('/agent/chat')).body.file_ids).toHaveLength(1);
 
     type('создай клиента Иван Петров');
