@@ -90,10 +90,13 @@ def load_env() -> dict[str, str]:
 # ------------------------------------------------------------------ утилиты
 
 
-def port_open(port: int, host: str = "127.0.0.1") -> bool:
-    with socket.socket() as s:
-        s.settimeout(0.5)
-        return s.connect_ex((host, port)) == 0
+def port_open(port: int, host: str = "localhost") -> bool:
+    # create_connection пробует и IPv6, и IPv4: Vite на Windows может слушать только ::1
+    try:
+        with socket.create_connection((host, port), timeout=0.5):
+            return True
+    except OSError:
+        return False
 
 
 def wait_port(port: int, timeout: float, proc: subprocess.Popen | None = None) -> bool:

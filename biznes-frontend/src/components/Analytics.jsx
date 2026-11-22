@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Icon, PageHead } from './ui'
+import { useOverview } from '../useOverview'
 
 // Демо-данные. Потом заменить на ответ инструмента get_sales_summary
 const MONTHS = ['ноя', 'дек', 'янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт']
@@ -24,12 +25,25 @@ const byn = (v) => v.toLocaleString('ru-RU')
 
 export default function Analytics({ company, onAsk, go }) {
   const [period, setPeriod] = useState(6)
-  const rows = DATA.slice(-period)
+  const { data } = useOverview()
+  const real = !!data && data.months.length > 0
+  const MN = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
+  const all = real ? data.months.map((g) => ({ m: MN[+g.key.slice(5, 7) - 1], v: g.revenue })) : DATA
+  const rows = all.slice(-period)
+  const products = real ? data.top_products.map((p) => [p.name, '', p.revenue, `${p.quantity} шт`]) : PRODUCTS
+  const stockRows = real
+    ? [...data.low_stock.map((p) => [p.name, p.stock, 'low', 'Мало на складе']),
+       ...data.slow_movers.map((p) => [p.name, p.stock, 'stale', p.days_since_last_sale ? `Нет продаж ${p.days_since_last_sale} дн.` : 'Не продавался'])]
+    : STOCK
+  const ch = data?.month.revenue_change_pct
+  const summary = !real ? null : ch == null
+    ? 'Для сравнения с прошлым месяцем пока мало данных.'
+    : `Выручка за текущий месяц ${ch >= 0 ? 'выше' : 'ниже'} прошлого на ${Math.abs(ch)}% (за то же число дней).`
   const total = rows.reduce((s, r) => s + r.v, 0)
 
   return (
     <section>
-      <PageHead company={company} tab="an" title="Аналитика" sub="Сейчас показаны демо-данные. Чтобы увидеть свои цифры, приложите файл продаж в чате ассистента.">
+      <PageHead company={company} tab="an" title="Аналитика" sub={real ? 'Данные из базы компании. Файл с продажами можно приложить в чате ассистента.' : 'Сейчас показаны демо-данные. Чтобы увидеть свои цифры, приложите файл продаж в чате ассистента.'}>
         <button className="btn secondary" onClick={() => go('chat')}><Icon name="up" />Приложить продажи</button>
         <button className="btn secondary" onClick={() => window.print()}><Icon name="down" />Скачать отчёт PDF</button>
       </PageHead>
@@ -59,18 +73,20 @@ export default function Analytics({ company, onAsk, go }) {
             </ResponsiveContainer>
           </div>
           <div className="summary">
+            {real ? <p><b>Что видно:</b> {summary}</p> : (
             <p><b>Что видно:</b> выручка росла до августа, в сентябре остановилась, в октябре упала на 12%. Основная просадка в категории «Текстиль»: плед флисовый не продавался 18 дней, хотя на складе 40 штук.</p>
+            )}
             <button className="btn" onClick={() => onAsk('Почему упала выручка в октябре и что сделать?')}>Обсудить с ассистентом</button>
           </div>
         </section>
 
         <div className="cols-2">
           <section className="panel">
-            <div className="panel-head"><h2>Товары по выручке за октябрь</h2></div>
+            <div className="panel-head"><h2>{real ? 'Товары по выручке за 3 месяца' : 'Товары по выручке за октябрь'}</h2></div>
             <table>
-              <thead><tr><th>Товар</th><th className="r">Выручка</th><th className="r">Остаток</th></tr></thead>
+              <thead><tr><th>Товар</th><th className="r">Выручка</th><th className="r">{real ? 'Продано' : 'Остаток'}</th></tr></thead>
               <tbody>
-                {PRODUCTS.map(([name, cat, rev, stock, note]) => (
+                {products.map(([name, cat, rev, stock, note]) => (
                   <tr key={name}>
                     <td>{name}<div className="small muted">{cat}{note && <>. <span className="down">{note}</span></>}</div></td>
                     <td className="r num">{byn(rev)}</td>
@@ -88,7 +104,7 @@ export default function Analytics({ company, onAsk, go }) {
             <table>
               <thead><tr><th>Товар</th><th className="r">Остаток</th><th>Статус</th></tr></thead>
               <tbody>
-                {STOCK.map(([name, qty, status, note]) => (
+                {stockRows.map(([name, qty, status, note]) => (
                   <tr key={name}>
                     <td>{name}<div className="small muted">{note}</div></td>
                     <td className="r num">{qty} шт</td>

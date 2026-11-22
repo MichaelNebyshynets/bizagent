@@ -28,6 +28,8 @@ from .files import MAX_FILE_BYTES, FileStore, FileTooLarge
 from .kb import KnowledgeBase
 from .llm.base import LLMProvider
 from .mock_data import MockDB
+from .overview import build_overview
+from .context import ToolContext
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -157,6 +159,18 @@ def get_conversation(conversation_id: str, principal: Principal = Depends(get_pr
 def delete_conversation(conversation_id: str, principal: Principal = Depends(get_principal), rt: Runtime = Depends(get_runtime)) -> dict[str, Any]:
     rt.store.delete_conversation(principal, conversation_id)  # NotFound (404), если чат чужой
     return {"status": "deleted", "id": conversation_id}
+
+@router.get("/kb/search")
+def kb_search(q: str = Query(min_length=2, max_length=200), principal: Principal = Depends(get_principal), rt: Runtime = Depends(get_runtime)) -> dict[str, Any]:
+    """Поиск по тексту документов базы знаний (тот же, что у инструмента агента). Пусто, если ничего не найдено."""
+    hits = rt.kb.search(q, 5)
+    return {"query": q, "results": [{"title": h.title, "source_url": h.source_url, "doc_date": h.doc_date, "text": h.text[:700]} for h in hits]}
+
+@router.get("/overview")
+def overview(principal: Principal = Depends(get_principal), rt: Runtime = Depends(get_runtime)) -> dict[str, Any]:
+    """Сводка для дашборда и аналитики: те же данные, что видит агент, с учётом роли."""
+    ctx = ToolContext(db=rt.db, kb=rt.kb, principal=principal, today=rt.clock().date(), files=rt.files)
+    return build_overview(ctx)
 
 @router.get("/tools")
 def list_tools(principal: Principal = Depends(get_principal), rt: Runtime = Depends(get_runtime)) -> dict[str, Any]:
