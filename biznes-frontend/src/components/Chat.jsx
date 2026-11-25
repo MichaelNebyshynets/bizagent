@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import SalesImport from './SalesImport';
+import SalesImportHistory from './SalesImportHistory';
 
 const API = 'http://localhost:8000';
 const ACCEPT = '.txt,.md,.csv,.xlsx,.docx,.pdf';
@@ -33,6 +35,10 @@ async function api(path, opts = {}) {
     throw err;
   }
   return response.json();
+}
+
+function loadSalesImports(before, signal) {
+  return api(before ? `/agent/sales/imports?before=${before}` : '/agent/sales/imports', { signal });
 }
 
 const timeRu = (iso) => new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
@@ -94,6 +100,12 @@ export default function Chat({ initial, clear, company, onEvent }) {
   const [uploading, setUploading] = useState(false);
   const [contextCategory, setContextCategory] = useState('Все');
   const [uploadedFile, setUploadedFile] = useState(null);
+  const [salesFile, setSalesFile] = useState(null);
+  const [salesFileVersion, setSalesFileVersion] = useState(0);
+  const [salesHistoryOpen, setSalesHistoryOpen] = useState(false);
+  const [salesHistoryVersion, setSalesHistoryVersion] = useState(0);
+  const fileMode = useRef('attachment');
+  const canImportSales = ['owner', 'accountant'].includes(localStorage.getItem('user_role'));
   // Загруженные файлы, которые приложатся к следующему сообщению: [{file_id, filename}]
   const [attachments, setAttachments] = useState([]);
   const [dragOver, setDragOver] = useState(false);
@@ -259,6 +271,26 @@ export default function Chat({ initial, clear, company, onEvent }) {
     }
   };
 
+  const chooseFile = (mode) => {
+    const picker = fileInputRef.current;
+    if (!picker) return;
+    fileMode.current = mode;
+    picker.accept = mode === 'sales' ? '.csv,text/csv' : ACCEPT;
+    picker.click();
+  };
+
+  const onFileChosen = (event) => {
+    const file = event.target.files[0];
+    event.target.value = '';
+    if (!file) return;
+    if (fileMode.current === 'sales') {
+      setSalesFile(file);
+      setSalesFileVersion((version) => version + 1);
+    } else {
+      uploadFile(file);
+    }
+  };
+
   const onDrop = (e) => {
     e.preventDefault();
     setDragOver(false);
@@ -279,6 +311,18 @@ export default function Chat({ initial, clear, company, onEvent }) {
           <p>Отвечает по данным вашей компании и документам базы знаний. Записи вносит только после вашего подтверждения.</p>
         </div>
       </div>
+
+      {salesFile && (
+        <SalesImport key={salesFileVersion} file={salesFile} onClose={() => setSalesFile(null)}
+          onImported={() => {
+            onEvent?.('upload');
+            setSalesHistoryVersion((value) => value + 1);
+          }} />
+      )}
+
+      {salesHistoryOpen && (
+        <SalesImportHistory key={salesHistoryVersion} load={loadSalesImports} onClose={() => setSalesHistoryOpen(false)} />
+      )}
 
       <div className="panel chat">
         <div className="chat-list">
@@ -396,14 +440,14 @@ export default function Chat({ initial, clear, company, onEvent }) {
                 accept={ACCEPT}
                 ref={fileInputRef}
                 style={{ display: 'none' }}
-                onChange={(e) => uploadFile(e.target.files[0])}
+                onChange={onFileChosen}
               />
               <button
                 type="button"
                 className="btn ghost icon"
                 title="Приложить файл"
                 aria-label="Приложить файл"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => chooseFile('attachment')}
                 disabled={uploading}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M20 11l-8.5 8.5a5 5 0 0 1-7-7L13 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L14 7" /></svg>
@@ -433,6 +477,17 @@ export default function Chat({ initial, clear, company, onEvent }) {
               <button type="submit" className="btn" disabled={busy}>Отправить</button>
             </form>
             <div className="comp-hint">
+              {canImportSales && <>
+                <button type="button" className="btn sm secondary" disabled={busy || !!salesFile}
+                  title="Записать продажи из CSV в аналитику" onClick={() => chooseFile('sales')}>
+                  Импортировать продажи
+                </button>
+                <a className="btn sm ghost" href={`${import.meta.env.BASE_URL}sales-template.csv`} download>
+                  Скачать шаблон CSV
+                </a>
+                <button type="button" className="btn sm secondary" aria-expanded={salesHistoryOpen}
+                  onClick={() => setSalesHistoryOpen((open) => !open)}>История импортов</button>
+              </>}
               <span>Enter — отправить, Shift+Enter — новая строка</span>
               <span>{uploadedFile ? `Последний файл: ${uploadedFile}` : `Файлы: txt, csv, xlsx, docx, pdf до ${MAX_MB} МБ, не больше ${MAX_FILES}`}</span>
             </div>

@@ -24,11 +24,13 @@ from .clock import Clock
 from .config import Settings
 from .context import Principal
 from .errors import AgentError
-from .files import MAX_FILE_BYTES, FileStore, FileTooLarge
+from .files import MAX_FILE_BYTES, FileStore, FileTooLarge, clean_filename
 from .kb import KnowledgeBase
 from .llm.base import LLMProvider
 from .mock_data import MockDB
 from .overview import build_overview
+from .db_postgres import PostgresDB
+from .sales_import import import_sales, list_sales_imports
 from .context import ToolContext
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -165,6 +167,37 @@ def kb_search(q: str = Query(min_length=2, max_length=200), principal: Principal
     """Поиск по тексту документов базы знаний (тот же, что у инструмента агента). Пусто, если ничего не найдено."""
     hits = rt.kb.search(q, 5)
     return {"query": q, "results": [{"title": h.title, "source_url": h.source_url, "doc_date": h.doc_date, "text": h.text[:700]} for h in hits]}
+
+@router.post("/sales/import")
+async def sales_import(
+    file: UploadFile = File(...),
+    confirm: bool = Form(False),
+    principal: Principal = Depends(get_principal),
+    rt: Runtime = Depends(get_runtime),
+):
+    db = sales_db(principal, rt)
+    content = await file.read(1_048_577)
+    if len(content) > 1_048_576:
+        raise HTTPException(413, "Размер CSV не должен превышать 1 МБ")
+    return await run_in_threadpool(import_sales, db, principal, content, confirm, clean_filename(file.filename))
+
+
+def sales_db(principal: Principal, rt: Runtime) -> PostgresDB:
+    if principal.role not in ("owner", "accountant"):
+        raise HTTPException(403, "Импорт доступен владельцу и бухгалтеру")
+    if not isinstance(rt.db, PostgresDB):
+        raise HTTPException(409, "Для импорта нужен PostgreSQL")
+    return rt.db
+
+
+@router.get("/sales/imports")
+def sales_import_history(
+    before: int | None = Query(default=None, ge=1, le=2**63 - 1),
+    principal: Principal = Depends(get_principal),
+    rt: Runtime = Depends(get_runtime),
+):
+    return list_sales_imports(sales_db(principal, rt), principal.company_id, before)
+
 
 @router.get("/overview")
 def overview(principal: Principal = Depends(get_principal), rt: Runtime = Depends(get_runtime)) -> dict[str, Any]:
