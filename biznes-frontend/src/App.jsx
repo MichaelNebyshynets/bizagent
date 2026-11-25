@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import Dashboard from './components/Dashboard'
 import Chat from './components/Chat'
 import Analytics from './components/Analytics'
+import Orders from './components/Orders'
 import KnowledgeBase from './components/KnowledgeBase'
 import Profile from './components/Profile'
 import { Login } from './components/Login'
@@ -20,6 +21,7 @@ const loadOnb = () => {
 
 export default function App() {
   const [tab, setTab] = useState('dash')
+  const [orderImport, setOrderImport] = useState(null)
   const [question, setQuestion] = useState('') // вопрос с других вкладок, уходит в чат
   const [menuOpen, setMenuOpen] = useState(false)
   const [toast, setToast] = useState('')
@@ -33,7 +35,7 @@ export default function App() {
   const email = localStorage.getItem('user_email') || ''
   const company = COMPANY_BY_DOMAIN[email.split('@')[1]] || 'Ваша компания'
 
-  const go = (id) => { setTab(id); setMenuOpen(false); window.scrollTo(0, 0) }
+  const go = (id) => { setOrderImport(null); setTab(id); setMenuOpen(false); window.scrollTo(0, 0) }
   const ask = (q) => { setQuestion(q); go('chat') }
   const notify = (text) => { setToast(text); setTimeout(() => setToast(''), 2600) }
   const markDone = (step) => setOnb((prev) => {
@@ -118,12 +120,14 @@ export default function App() {
       <main>
         <div className="page">
           {tab === 'dash' && <Dashboard {...common} userName={userName} onb={onb} />}
+          {tab === 'orders' && <Orders key={orderImport?.id ?? "all"} company={company} importSelection={orderImport} clearImport={() => setOrderImport(null)} />}
           {tab === 'an' && <Analytics {...common} />}
           {tab === 'chat' && (
             <Chat
               initial={question}
               clear={() => setQuestion('')}
               company={company}
+              onImportOrders={(item) => { go('orders'); setOrderImport({ id: item.id, filename: item.filename }) }}
               onEvent={(e) => markDone(e === 'upload' ? 'data' : 'ask')}
             />
           )}

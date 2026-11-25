@@ -87,7 +87,7 @@ def import_sales(db, principal: Principal, content: bytes, confirm: bool, filena
             month_revenue[month] += sum(qty * price for _, _, _, qty, price in lines)
             month_orders[month] += 1
         revenue = sum(month_revenue.values(), Decimal("0"))
-        imported = 0
+        imported_order_ids = []
         if confirm and not errors:
             for external_id, lines in ready.items():
                 cur.execute(
@@ -102,12 +102,18 @@ def import_sales(db, principal: Principal, content: bytes, confirm: bool, filena
                     [(order_id, products[sku][0], qty, price, products[sku][1])
                      for _, _, sku, qty, price in lines],
                 )
-                imported += 1
+                imported_order_ids.append(order_id)
+        imported = len(imported_order_ids)
         if imported:
             cur.execute(
                 """INSERT INTO sales_imports (company_id, user_id, author, filename, orders, rows, duplicates, revenue)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
                 (company_id, principal.user_id, principal.name, filename, imported, row_count, duplicates, revenue),
+            )
+            import_id = cur.fetchone()[0]
+            cur.execute(
+                "UPDATE orders SET sales_import_id = %s WHERE company_id = %s AND id = ANY(%s)",
+                (import_id, company_id, imported_order_ids),
             )
         return {
             "orders": len(ready),
@@ -125,8 +131,9 @@ def import_sales(db, principal: Principal, content: bytes, confirm: bool, filena
 def list_sales_imports(db, company_id: int, before: int | None, limit: int = 20) -> dict:
     with closing(db._get_conn()) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(
-            """SELECT id, author, user_id, filename, created_at, orders, rows, duplicates, revenue::text AS revenue
-               FROM sales_imports
+            """SELECT id, author, user_id, filename, created_at, orders, rows, duplicates, revenue::text AS revenue,
+                      EXISTS (SELECT 1 FROM orders o WHERE o.company_id = s.company_id AND o.sales_import_id = s.id) AS has_orders
+               FROM sales_imports s
                WHERE company_id = %s AND (%s::bigint IS NULL OR id < %s)
                ORDER BY id DESC LIMIT %s""",
             (company_id, before, before, limit + 1),

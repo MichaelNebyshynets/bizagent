@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-export default function SalesImportHistory({ load, onClose }) {
+export default function SalesImportHistory({ load, onClose, onImportOrders }) {
   const [pages, setPages] = useState([])
   const [before, setBefore] = useState(null)
   const [next, setNext] = useState(null)
@@ -47,7 +47,9 @@ export default function SalesImportHistory({ load, onClose }) {
                     <td>{item.filename}</td>
                     <td>{new Date(item.created_at).toLocaleString('ru-RU')}</td>
                     <td>{item.author || `ID ${item.user_id}`}</td>
-                    <td>{item.orders}</td>
+                    <td>{item.has_orders && onImportOrders
+                      ? <button type="button" className="btn sm secondary" onClick={() => onImportOrders(item)}>Открыть ({item.orders})</button>
+                      : item.orders}</td>
                     <td>{item.rows}</td>
                     <td>{item.duplicates}</td>
                     <td>{item.revenue.replace('.', ',')}</td>

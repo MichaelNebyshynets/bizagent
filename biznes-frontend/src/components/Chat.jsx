@@ -89,7 +89,7 @@ const EXAMPLES = [
   ['Вопрос по законам РБ', 'Ответ со ссылкой на документ', ['Какую форму налогообложения выбрать?', 'Какие взносы платит ИП в ФСЗН?']],
 ];
 
-export default function Chat({ initial, clear, company, onEvent }) {
+export default function Chat({ initial, clear, company, onEvent, onImportOrders }) {
   // История чатов хранится на сервере у каждого пользователя своя, в браузере ничего не храним
   const [chats, setChats] = useState([]); // [{id, title, updated_at}]
   const [activeId, setActiveId] = useState(null); // null — новый чат, ещё не отправлен
@@ -321,7 +321,7 @@ export default function Chat({ initial, clear, company, onEvent }) {
       )}
 
       {salesHistoryOpen && (
-        <SalesImportHistory key={salesHistoryVersion} load={loadSalesImports} onClose={() => setSalesHistoryOpen(false)} />
+        <SalesImportHistory key={salesHistoryVersion} load={loadSalesImports} onImportOrders={onImportOrders} onClose={() => setSalesHistoryOpen(false)} />
       )}
 
       <div className="panel chat">

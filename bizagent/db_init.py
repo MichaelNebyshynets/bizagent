@@ -87,6 +87,14 @@ def main() -> None:
         CREATE INDEX IF NOT EXISTS idx_sales_imports_company_id ON sales_imports (company_id, id DESC);
     """)
 
+    cur.execute("""
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS sales_import_id BIGINT REFERENCES sales_imports(id);
+        CREATE INDEX IF NOT EXISTS idx_orders_company_import ON orders (company_id, sales_import_id)
+            WHERE sales_import_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_orders_company_date ON orders (company_id, created_at DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id);
+    """)
+
     if os.getenv("SEED_DEMO_DATA", "1") == "1" and count(cur, "companies") == 0:
         print("База пустая: заливаю демо-данные (seed_db.py)…")
         subprocess.run([sys.executable, "seed_db.py"], check=True)
