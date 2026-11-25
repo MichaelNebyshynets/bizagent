@@ -293,6 +293,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Запуск БизнесПомощника одной командой")
     ap.add_argument("--mock", action="store_true", help="без Docker и Postgres: данные в памяти")
     ap.add_argument("--no-browser", action="store_true", help="не открывать браузер")
+    ap.add_argument("--set-password", metavar="EMAIL", help="задать пароль существующему пользователю PostgreSQL")
     args = ap.parse_args()
 
     check_layout()
@@ -301,6 +302,13 @@ def main() -> None:
     if args.mock:
         env["DB_BACKEND"] = "mock"
     env.setdefault("DB_BACKEND", "postgres")
+
+    if args.set_password:
+        if env["DB_BACKEND"] != "postgres":
+            ap.error("--set-password требует PostgreSQL")
+        py = ensure_backend_deps()
+        ensure_postgres(py, env)
+        raise SystemExit(run([str(py), "set_password.py", args.set_password], BACKEND, env=env))
 
     for port, what in ((BACKEND_PORT, "бэкенд"), (FRONTEND_PORT, "фронтенд")):
         if port_open(port):
@@ -311,7 +319,7 @@ def main() -> None:
     if env["DB_BACKEND"] == "postgres":
         ensure_postgres(py, env)
     else:
-        say("База: данные в памяти (--mock), вход по email недоступен, используйте демо-токен", "warn")
+        say("База: данные в памяти (--mock), доступен демо-вход", "warn")
 
     procs: list[tuple[str, subprocess.Popen]] = []
     try:

@@ -18,7 +18,18 @@ python3 run.py         # Windows: py run.py
 
 Остановить: **Ctrl+C**. Postgres остаётся работать в Docker (`docker compose stop`, чтобы остановить).
 
-Вход: `owner@uyut.by`, `manager@uyut.by`, `accountant@uyut.by`, `owner@flora.by`.
+В PostgreSQL вход работает по email и паролю. Для каждого существующего
+аккаунта один раз задай пароль в терминале, например:
+
+```bash
+python3 run.py --set-password owner@uyut.by
+python3 run.py
+```
+
+Команда запросит пароль без отображения на экране и автоматически подготовит
+схему PostgreSQL. Остальные учебные аккаунты можно настроить так же
+(`manager@uyut.by`, `accountant@uyut.by`, `owner@flora.by`). Ранее выданные
+токены нужно заменить повторным входом. В `--mock` доступны демо-кнопки.
 
 | Нужно | Зачем |
 |---|---|
@@ -28,7 +39,7 @@ python3 run.py         # Windows: py run.py
 | Ollama + `ollama pull qwen2.5:7b` | локальная модель (можно без неё: `LLM_PROVIDER=mock` в `.env`) |
 
 Варианты:
-- `python3 run.py --mock` — без Docker и Postgres, данные в памяти (вход только по демо-токену);
+- `python3 run.py --mock` — без Docker и Postgres, данные в памяти (вход через демо-кнопки);
 - `python3 run.py --no-browser` — не открывать браузер.
 
 Модель, базу и таймауты меняйте в `.env` (не в `.env.example`).

@@ -6,11 +6,13 @@
 """
 import json
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -18,7 +20,7 @@ from pydantic import BaseModel, Field
 from .agent.actions import confirm_action, reject_action
 from .agent.loop import conversation_view, run_agent_events
 from .agent.runtime import Runtime
-from .auth import principal_from_token
+from .auth import DEMO_USERS, SECRET_KEY, create_access_token, principal_from_token, verify_password
 from .bootstrap import build_runtime
 from .clock import Clock
 from .config import Settings
@@ -38,10 +40,9 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 def get_runtime(request: Request) -> Runtime:
     return request.app.state.rt
 
-def get_principal(authorization: str | None = Header(default=None)) -> Principal:
-    """Кто делает запрос. ЗАГЛУШКА: см. app/auth.py (в реальной системе здесь разбор JWT)."""
+def get_principal(authorization: str | None = Header(default=None), rt: Runtime = Depends(get_runtime)) -> Principal:
     token = authorization.removeprefix("Bearer ").strip() if authorization else None
-    principal = principal_from_token(token)
+    principal = principal_from_token(token, allow_demo=rt.settings.db_backend == "mock")
     if principal is None:
         raise HTTPException(status_code=401, detail="Требуется авторизация", headers={"WWW-Authenticate": "Bearer"})
     return principal
@@ -56,8 +57,12 @@ class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     file_ids: list[str] = Field(default_factory=list, max_length=5, description="файлы из /agent/upload, приложенные к этому сообщению")
 
-class LoginIn(BaseModel):
-    email: str
+class DemoLoginIn(BaseModel):
+    email: str = Field(min_length=1, max_length=255)
+
+
+class LoginIn(DemoLoginIn):
+    password: str = Field(min_length=1, max_length=128)
 
 # ---------------------------------------------------------------- эндпоинты
 
@@ -223,37 +228,53 @@ def create_app(
     async def agent_error_handler(_: Request, exc: AgentError) -> JSONResponse:
         return JSONResponse(status_code=exc.status, content={"detail": exc.message, "code": exc.code})
 
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, exc: RequestValidationError):
+        if request.url.path == "/auth/login":
+            return JSONResponse(status_code=422, content={"detail": "Введите email и пароль (до 128 символов)"})
+        return await request_validation_exception_handler(request, exc)
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "llm": rt.settings.llm_provider, "db": rt.settings.db_backend}
 
     app.include_router(router)
+    app.include_router(auth_router)
     return app
 
-app = create_app()
+auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
-@app.post("/auth/login")
+
+@auth_router.post("/login")
 def login(body: LoginIn, rt: Runtime = Depends(get_runtime)) -> dict[str, Any]:
-    """Вход по email с возвратом JWT-токена."""
-    from .auth import create_access_token
-    
-    clean_email = body.email.strip().lower()
-    if not hasattr(rt.db, "_get_conn"):
-        raise HTTPException(status_code=503, detail="Вход по email работает только с Postgres (DB_BACKEND=postgres). В режиме mock используйте демо-токен.")
+    if rt.settings.db_backend != "postgres" or len(SECRET_KEY.encode()) < 32:
+        raise HTTPException(503, "Вход по паролю недоступен: проверьте PostgreSQL и JWT_SECRET")
 
-    with rt.db._get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, company_id, role, name FROM users WHERE LOWER(email) = LOWER(%s);", 
-                (clean_email,)
-            )
-            user = cur.fetchone()
-            
-            if not user:
-                # Если пользователя нет в базе — бросаем 404
-                raise HTTPException(status_code=404, detail=f"Пользователь '{clean_email}' не найден в БД")
-            
-            uid, cid, role, name = user
-            token = create_access_token(user_id=uid, company_id=cid, role=role, name=name)
-            return {"access_token": token, "token_type": "bearer", "role": role, "name": name}
+    with closing(rt.db._get_conn()) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, company_id, role, name, password_hash FROM users WHERE LOWER(email) = %s LIMIT 2",
+            (body.email.strip().lower(),),
+        )
+        users = cur.fetchall()
+    user = users[0] if len(users) == 1 else None
+    if not verify_password(body.password, user[4] if user else None):
+        raise HTTPException(401, "Неверный email или пароль")
 
+    uid, cid, role, name, _ = user
+    token = create_access_token(user_id=uid, company_id=cid, role=role, name=name)
+    return {"access_token": token, "token_type": "bearer", "role": role, "name": name}
+
+
+@auth_router.post("/demo")
+def demo_login(body: DemoLoginIn, rt: Runtime = Depends(get_runtime)) -> dict[str, Any]:
+    if rt.settings.db_backend != "mock":
+        raise HTTPException(404, "Демо-вход доступен только в режиме mock")
+    address = body.email.strip().lower()
+    for token, user in DEMO_USERS.items():
+        _, role, company = token.split("-")
+        if address == f"{role}@{company}.by":
+            return {"access_token": token, "token_type": "bearer", "role": user.role, "name": user.name}
+    raise HTTPException(401, "Неизвестный демо-аккаунт")
+
+
+app = create_app()

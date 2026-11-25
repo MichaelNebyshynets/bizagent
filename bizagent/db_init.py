@@ -63,6 +63,8 @@ def main() -> None:
                 print("Нужен Postgres с расширением pgvector: используйте docker compose из проекта (образ ankane/pgvector).")
             sys.exit(1)
 
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
+
     if count(cur, "companies") == 0:
         print("База пустая: заливаю демо-данные (seed_db.py)…")
         subprocess.run([sys.executable, "seed_db.py"], check=True)

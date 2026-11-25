@@ -209,3 +209,42 @@ def test_kb_search_requires_auth_and_returns_shape():
     r = client.get("/agent/kb/search?q=УСН", headers=OWNER)
     assert r.status_code == 200 and r.json()["results"] == []  # в режиме mock база знаний пустая
     assert client.get("/agent/kb/search?q=а", headers=OWNER).status_code == 422  # слишком короткий запрос
+
+
+def test_mock_demo_login():
+    client, _ = make([])
+    response = client.post("/auth/demo", json={"email": "owner@uyut.by"})
+    assert response.status_code == 200
+    assert response.json()["access_token"] == "demo-owner-uyut"
+    assert client.post("/auth/login", json={"email": "owner@uyut.by"}).status_code == 422
+
+
+def test_postgres_login_requires_password_and_rejects_demo_token(monkeypatch):
+    from dataclasses import replace
+    from unittest.mock import MagicMock
+
+    import jwt
+    from app import auth, main
+
+    secret = "x" * 32
+    monkeypatch.setattr(auth, "SECRET_KEY", secret)
+    monkeypatch.setattr(main, "SECRET_KEY", secret)
+    client, runtime = make([])
+    runtime.settings = replace(runtime.settings, db_backend="postgres")
+    runtime.db = MagicMock()
+    cursor = runtime.db._get_conn.return_value.cursor.return_value.__enter__.return_value
+    password = "a-long-password"
+    cursor.fetchall.return_value = [(1, 1, "owner", "Анна", auth.hash_password(password))]
+    assert client.get("/agent/tools", headers=OWNER).status_code == 401
+    assert client.post("/auth/demo", json={"email": "owner@uyut.by"}).status_code == 404
+    assert client.post("/auth/login", json={"email": "owner@uyut.by", "password": "wrong"}).status_code == 401
+    response = client.post("/auth/login", json={"email": "owner@uyut.by", "password": password})
+    assert response.status_code == 200
+    assert client.get("/agent/tools", headers={"Authorization": f"Bearer {response.json()['access_token']}"}).status_code == 200
+
+    old_token = jwt.encode({"user_id": 1, "company_id": 1, "role": "owner", "exp": 4102444800}, secret)
+    assert client.get("/agent/tools", headers={"Authorization": f"Bearer {old_token}"}).status_code == 401
+    invalid_password = "a" * 129
+    invalid = client.post("/auth/login", json={"email": "owner@uyut.by", "password": invalid_password})
+    assert invalid.status_code == 422
+    assert invalid_password not in invalid.text
