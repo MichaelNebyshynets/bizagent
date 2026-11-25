@@ -64,6 +64,7 @@ def main() -> None:
                 print("Нужен Postgres с расширением pgvector: используйте docker compose из проекта (образ ankane/pgvector).")
             sys.exit(1)
 
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
     cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS external_sale_id VARCHAR(100)")
     cur.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_company_external_sale

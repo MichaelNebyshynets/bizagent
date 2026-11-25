@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
     email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash TEXT,
     role VARCHAR(50) NOT NULL CHECK (role IN ('owner', 'manager', 'accountant')),
     name VARCHAR(255) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
