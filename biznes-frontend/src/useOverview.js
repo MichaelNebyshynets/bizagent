@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 const API = 'http://localhost:8000'
 
-// Сводка для дашборда и аналитики (GET /agent/overview). При ошибке возвращает data=null, страницы показывают демо-данные.
+// Сводка для дашборда и аналитики.
 export function useOverview() {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')

@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -64,8 +65,29 @@ def main() -> None:
             sys.exit(1)
 
     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
+    cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS external_sale_id VARCHAR(100)")
+    cur.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_company_external_sale
+        ON orders (company_id, external_sale_id) WHERE external_sale_id IS NOT NULL
+    """)
 
-    if count(cur, "companies") == 0:
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sales_imports (
+            id BIGSERIAL PRIMARY KEY,
+            company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            user_id INT NOT NULL,
+            author TEXT NOT NULL,
+            filename VARCHAR(255) NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            orders INT NOT NULL,
+            rows INT NOT NULL,
+            duplicates INT NOT NULL,
+            revenue NUMERIC(24, 2) NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sales_imports_company_id ON sales_imports (company_id, id DESC);
+    """)
+
+    if os.getenv("SEED_DEMO_DATA", "1") == "1" and count(cur, "companies") == 0:
         print("База пустая: заливаю демо-данные (seed_db.py)…")
         subprocess.run([sys.executable, "seed_db.py"], check=True)
     if count(cur, "kb_documents") == 0 and Path("kb_docs").is_dir():

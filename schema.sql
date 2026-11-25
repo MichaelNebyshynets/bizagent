@@ -48,10 +48,14 @@ CREATE TABLE IF NOT EXISTS products (
 CREATE TABLE IF NOT EXISTS orders (
     id SERIAL PRIMARY KEY,
     company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    external_sale_id VARCHAR(100),
     client_id INT REFERENCES clients(id) ON DELETE SET NULL,
     status VARCHAR(50) NOT NULL DEFAULT 'completed' CHECK (status IN ('completed', 'cancelled')),
     created_at DATE NOT NULL DEFAULT CURRENT_DATE
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_company_external_sale
+    ON orders (company_id, external_sale_id) WHERE external_sale_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS order_items (
     id SERIAL PRIMARY KEY,
@@ -61,6 +65,20 @@ CREATE TABLE IF NOT EXISTS order_items (
     price NUMERIC(12, 2) NOT NULL,
     unit_cost NUMERIC(12, 2) NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS sales_imports (
+    id BIGSERIAL PRIMARY KEY,
+    company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    user_id INT NOT NULL,
+    author TEXT NOT NULL,
+    filename VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    orders INT NOT NULL,
+    rows INT NOT NULL,
+    duplicates INT NOT NULL,
+    revenue NUMERIC(24, 2) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sales_imports_company_id ON sales_imports (company_id, id DESC);
 
 CREATE TABLE IF NOT EXISTS expenses (
     id SERIAL PRIMARY KEY,
