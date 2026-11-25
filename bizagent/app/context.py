@@ -18,6 +18,7 @@ class Principal:
     company_id: int
     role: str  # owner | manager | accountant
     name: str = ""
+    session_version: int = 0
 
 
 @dataclass(frozen=True)

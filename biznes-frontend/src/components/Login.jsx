@@ -48,6 +48,7 @@ export function Login({ onLogin }) {
       localStorage.setItem('auth_token', data.access_token)
       localStorage.setItem('user_name', data.name)
       localStorage.setItem('user_role', data.role)
+      localStorage.setItem('user_company', data.company || '')
       localStorage.setItem('user_email', address.toLowerCase())
       setPassword('')
       onLogin(data)

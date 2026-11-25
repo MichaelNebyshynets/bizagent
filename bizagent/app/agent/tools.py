@@ -374,6 +374,29 @@ def find_product(ctx: ToolContext, a: FindProductArgs) -> dict:
     return {"products": rows}
 
 
+class SuggestedPurchaseLine(BaseModel):
+    product_id: int = Field(ge=1)
+    quantity: int = Field(ge=1, le=1_000_000)
+
+
+class SuggestPurchaseArgs(BaseModel):
+    lines: list[SuggestedPurchaseLine] = Field(min_length=1, max_length=25)
+
+
+def suggest_purchase(ctx: ToolContext, args: SuggestPurchaseArgs) -> dict:
+    lines = {line.product_id: line.quantity for line in args.lines}
+    if len(lines) != len(args.lines):
+        raise ToolError("Объедини повторяющиеся позиции")
+    products = {product.id: product for product in ctx.db.products(ctx.company_id)}
+    if not lines.keys() <= products.keys():
+        raise ToolError("Не все товары найдены в каталоге компании")
+    return {"lines": [
+        {"product_id": product_id, "quantity": quantity,
+         "name": products[product_id].name, "sku": products[product_id].sku}
+        for product_id, quantity in lines.items()
+    ]}
+
+
 def list_low_stock(ctx: ToolContext, a: LowStockArgs) -> dict:
     low = sorted((p for p in ctx.db.products(ctx.company_id) if p.stock <= a.threshold), key=lambda p: p.stock)[:30]
     return {"threshold": a.threshold, "products": [{"id": p.id, "sku": p.sku, "name": p.name, "stock": p.stock} for p in low]}
@@ -645,6 +668,9 @@ def build_registry() -> ToolRegistry:
         Tool("find_product",
              "Поиск товара по названию или артикулу; возвращает id, цену и остаток. Нужен, чтобы узнать product_id.",
              FindProductArgs, find_product, ALL_ROLES),
+        Tool("suggest_purchase",
+             "Передаёт в интерфейс редактируемый черновик закупки. Сначала проверь товары и остатки.",
+             SuggestPurchaseArgs, suggest_purchase, frozenset({"owner", "manager"})),
         Tool("list_low_stock",
              "Товары, которые заканчиваются на складе (остаток не больше порога).",
              LowStockArgs, list_low_stock, ALL_ROLES),

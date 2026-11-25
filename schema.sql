@@ -54,9 +54,6 @@ CREATE TABLE IF NOT EXISTS orders (
     created_at DATE NOT NULL DEFAULT CURRENT_DATE
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_company_external_sale
-    ON orders (company_id, external_sale_id) WHERE external_sale_id IS NOT NULL;
-
 CREATE TABLE IF NOT EXISTS order_items (
     id SERIAL PRIMARY KEY,
     order_id INT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
@@ -85,6 +82,35 @@ CREATE INDEX IF NOT EXISTS idx_orders_company_import ON orders (company_id, sale
     WHERE sales_import_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_orders_company_date ON orders (company_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INT NOT NULL DEFAULT 0;
+ALTER TABLE sales_imports ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ;
+ALTER TABLE sales_imports ADD COLUMN IF NOT EXISTS reversed_by INT;
+ALTER TABLE sales_imports ADD COLUMN IF NOT EXISTS reversed_by_name TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_active_orders_company_external_sale
+    ON orders (company_id, external_sale_id) WHERE external_sale_id IS NOT NULL AND status = 'completed';
+DROP INDEX IF EXISTS uq_orders_company_external_sale;
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+    id BIGSERIAL PRIMARY KEY,
+    company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    user_id INT NOT NULL,
+    author TEXT NOT NULL,
+    supplier VARCHAR(255) NOT NULL,
+    request_id UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (company_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_company ON purchase_orders (company_id, id DESC);
+CREATE TABLE IF NOT EXISTS purchase_order_items (
+    purchase_order_id BIGINT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+    product_id INT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    product_name VARCHAR(255) NOT NULL,
+    sku VARCHAR(100) NOT NULL,
+    quantity INT NOT NULL CHECK (quantity > 0),
+    PRIMARY KEY (purchase_order_id, product_id)
+);
 
 CREATE TABLE IF NOT EXISTS expenses (
     id SERIAL PRIMARY KEY,

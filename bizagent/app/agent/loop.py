@@ -201,8 +201,16 @@ async def _run_turn(rt: Runtime, principal: Principal, conv: Any) -> AsyncIterat
             content = _to_content(outcome.payload)
             # На КАЖДЫЙ tool_call обязателен ответ tool с тем же id, иначе история станет невалидной
             conv.messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
-            trace.append({"tool": tc.name, "ok": outcome.ok})
-            yield {"type": "tool_result", "id": tc.id, "name": tc.name, "ok": outcome.ok, "preview": content[:500]}
+            entry = {"tool": tc.name, "ok": outcome.ok}
+            if outcome.ok and tc.name == "suggest_purchase":
+                entry["purchase_lines"] = outcome.payload["lines"]
+            elif outcome.ok and tc.name == "list_low_stock" and principal.role in ("owner", "manager"):
+                entry["purchase_lines"] = [
+                    {"product_id": product["id"], "quantity": 10 - product["stock"]}
+                    for product in outcome.payload["products"] if product["stock"] < 10
+                ]
+            trace.append(entry)
+            yield {"type": "tool_result", "id": tc.id, "name": tc.name, "ok": outcome.ok, "preview": content[:500], **({"purchase_lines": entry["purchase_lines"]} if "purchase_lines" in entry else {})}
             if outcome.pending:
                 card = pending_card(outcome.pending, rt.clock())
                 pending_out.append(card)

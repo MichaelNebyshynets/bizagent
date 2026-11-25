@@ -8,6 +8,7 @@ import json
 import os
 from contextlib import asynccontextmanager, closing
 from datetime import date
+from uuid import UUID
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
@@ -37,6 +38,11 @@ from .db_postgres import PostgresDB
 from .sales_import import import_sales, list_sales_imports
 from .context import ToolContext
 
+from .workflows import (
+    PurchaseDraft, StaffCreate, StaffUpdate, create_staff, list_staff, purchase_options,
+    reverse_import, save_purchase, update_staff,
+)
+
 router = APIRouter(prefix="/agent", tags=["agent"])
 
 # ---------------------------------------------------------------- зависимости
@@ -47,6 +53,17 @@ def get_runtime(request: Request) -> Runtime:
 def get_principal(authorization: str | None = Header(default=None), rt: Runtime = Depends(get_runtime)) -> Principal:
     token = authorization.removeprefix("Bearer ").strip() if authorization else None
     principal = principal_from_token(token, allow_demo=rt.settings.db_backend == "mock")
+    if principal is not None and rt.settings.db_backend == "postgres":
+        with closing(rt.db._get_conn()) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT role, name, session_version FROM users WHERE id = %s AND company_id = %s AND active",
+                (principal.user_id, principal.company_id),
+            )
+            account = cur.fetchone()
+        if account is None or account[2] != principal.session_version:
+            principal = None
+        else:
+            principal = Principal(principal.user_id, principal.company_id, account[0], account[1], account[2])
     if principal is None:
         raise HTTPException(status_code=401, detail="Требуется авторизация", headers={"WWW-Authenticate": "Bearer"})
     return principal
@@ -117,6 +134,8 @@ async def chat(body: ChatIn, principal: Principal = Depends(get_principal), rt: 
             trace[ev["id"]] = {"tool": ev["name"], "args": ev["args"], "ok": None}
         elif kind == "tool_result":
             trace[ev["id"]]["ok"] = ev["ok"]
+            if "purchase_lines" in ev:
+                trace[ev["id"]]["purchase_lines"] = ev["purchase_lines"]
         elif kind == "error":
             raise HTTPException(status_code=502, detail=ev["message"])
         elif kind == "final":
@@ -206,6 +225,58 @@ def sales_import_history(
     return list_sales_imports(sales_db(principal, rt), principal.company_id, before)
 
 
+@router.post("/sales/imports/{import_id}/reverse")
+def reverse_sales_import(
+    import_id: int,
+    confirm: bool = Query(default=False),
+    principal: Principal = Depends(get_principal),
+    rt: Runtime = Depends(get_runtime),
+):
+    if not 1 <= import_id <= 2**63 - 1:
+        raise HTTPException(404, "Импорт не найден")
+    return reverse_import(sales_db(principal, rt), principal, import_id, confirm)
+
+
+def workflows_db(rt: Runtime, principal: Principal, roles: tuple[str, ...]) -> PostgresDB:
+    if principal.role not in roles:
+        raise HTTPException(403, "Недостаточно прав")
+    if not isinstance(rt.db, PostgresDB):
+        raise HTTPException(409, "Эта функция доступна с PostgreSQL")
+    return rt.db
+
+
+@router.get("/purchases")
+def purchases(principal: Principal = Depends(get_principal), rt: Runtime = Depends(get_runtime)):
+    return purchase_options(workflows_db(rt, principal, ("owner", "manager")), principal.company_id)
+
+
+@router.post("/purchases", status_code=201)
+def purchase(
+    draft: PurchaseDraft,
+    request_id: UUID,
+    principal: Principal = Depends(get_principal),
+    rt: Runtime = Depends(get_runtime),
+):
+    return save_purchase(workflows_db(rt, principal, ("owner", "manager")), principal, draft, request_id)
+
+
+@router.get("/staff")
+def staff(principal: Principal = Depends(get_principal), rt: Runtime = Depends(get_runtime)):
+    return list_staff(workflows_db(rt, principal, ("owner",)), principal.company_id)
+
+
+@router.post("/staff", status_code=201)
+def add_staff(body: StaffCreate, principal: Principal = Depends(get_principal), rt: Runtime = Depends(get_runtime)):
+    return create_staff(workflows_db(rt, principal, ("owner",)), principal, body)
+
+
+@router.patch("/staff/{user_id}")
+def change_staff(user_id: int, body: StaffUpdate, principal: Principal = Depends(get_principal), rt: Runtime = Depends(get_runtime)):
+    if not 1 <= user_id <= 2**31 - 1:
+        raise HTTPException(404, "Сотрудник не найден")
+    return update_staff(workflows_db(rt, principal, ("owner",)), principal, user_id, body)
+
+
 @router.get("/orders")
 def orders(
     date_from: date | None = None,
@@ -293,6 +364,8 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError):
+        if request.url.path == "/agent/staff" and request.method == "POST":
+            return JSONResponse(status_code=422, content={"detail": "Проверьте имя, email, роль и пароль (12–128 символов)"})
         if request.url.path == "/auth/login":
             return JSONResponse(status_code=422, content={"detail": "Введите email и пароль (до 128 символов)"})
         return await request_validation_exception_handler(request, exc)
@@ -315,17 +388,17 @@ def login(body: LoginIn, rt: Runtime = Depends(get_runtime)) -> dict[str, Any]:
 
     with closing(rt.db._get_conn()) as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT id, company_id, role, name, password_hash FROM users WHERE LOWER(email) = %s LIMIT 2",
+            "SELECT u.id, u.company_id, u.role, u.name, u.password_hash, u.active, u.session_version, c.name FROM users u JOIN companies c ON c.id = u.company_id WHERE LOWER(u.email) = %s LIMIT 2",
             (body.email.strip().lower(),),
         )
         users = cur.fetchall()
     user = users[0] if len(users) == 1 else None
-    if not verify_password(body.password, user[4] if user else None):
+    if not verify_password(body.password, user[4] if user and user[5] else None):
         raise HTTPException(401, "Неверный email или пароль")
 
-    uid, cid, role, name, _ = user
-    token = create_access_token(user_id=uid, company_id=cid, role=role, name=name)
-    return {"access_token": token, "token_type": "bearer", "role": role, "name": name}
+    uid, cid, role, name, _, _, session_version, company_name = user
+    token = create_access_token(user_id=uid, company_id=cid, role=role, name=name, session_version=session_version)
+    return {"access_token": token, "token_type": "bearer", "role": role, "name": name, "company": company_name}
 
 
 @auth_router.post("/demo")

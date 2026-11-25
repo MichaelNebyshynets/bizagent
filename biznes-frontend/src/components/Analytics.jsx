@@ -7,7 +7,7 @@ const byn = (v) => v.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximum
 const compact = new Intl.NumberFormat('ru-RU', { notation: 'compact', maximumFractionDigits: 1 })
 const fullMonth = new Intl.DateTimeFormat('ru-RU', { month: 'long', year: 'numeric', timeZone: 'UTC' })
 
-export default function Analytics({ company, onAsk }) {
+export default function Analytics({ company, onAsk, go, canPurchase }) {
   const [period, setPeriod] = useState(6)
   const [metric, setMetric] = useState('revenue')
   const showRevenue = metric === 'revenue'
@@ -119,6 +119,7 @@ export default function Analytics({ company, onAsk }) {
             <div className="panel-head">
               <h2>Склад: что сделать</h2>
               <button className="btn sm secondary" onClick={() => onAsk('Какие товары заканчиваются и сколько стоит докупить? Дай рекомендации по закупке.')}>Что докупить</button>
+              {canPurchase && <button className="btn sm secondary" onClick={() => go('purchases')}>Закупки</button>}
             </div>
             <table>
               <thead><tr><th>Товар</th><th className="r">Остаток</th><th>Статус</th></tr></thead>
