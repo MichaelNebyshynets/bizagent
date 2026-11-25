@@ -188,3 +188,24 @@ def test_conversations_list_view_and_delete_are_per_user():
 
     assert client.delete(f"/agent/conversations/{c1}", headers=OWNER).status_code == 200
     assert [c["id"] for c in client.get("/agent/conversations", headers=OWNER).json()] == [c2]
+
+
+def test_overview_scoped_by_role_and_company():
+    client, _ = make([])
+    r = client.get("/agent/overview", headers=OWNER)
+    assert r.status_code == 200
+    o = r.json()
+    assert o["month"]["revenue"] > 0 and len(o["months"]) >= 12 and o["profit"] is not None
+    m = client.get("/agent/overview", headers=MANAGER).json()
+    assert m["profit"] is None  # менеджеру маржа недоступна
+    f = client.get("/agent/overview", headers=FLORA).json()
+    assert f["month"]["revenue"] != o["month"]["revenue"]  # данные другой компании
+    assert client.get("/agent/overview").status_code == 401
+
+
+def test_kb_search_requires_auth_and_returns_shape():
+    client, _ = make([])
+    assert client.get("/agent/kb/search?q=УСН").status_code == 401
+    r = client.get("/agent/kb/search?q=УСН", headers=OWNER)
+    assert r.status_code == 200 and r.json()["results"] == []  # в режиме mock база знаний пустая
+    assert client.get("/agent/kb/search?q=а", headers=OWNER).status_code == 422  # слишком короткий запрос
