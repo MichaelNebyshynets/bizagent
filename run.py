@@ -90,10 +90,18 @@ def load_env() -> dict[str, str]:
 # ------------------------------------------------------------------ утилиты
 
 
-def port_open(port: int, host: str = "127.0.0.1") -> bool:
-    with socket.socket() as s:
-        s.settimeout(0.5)
-        return s.connect_ex((host, port)) == 0
+def port_open(port: int) -> bool:
+    """Слушает ли кто-то порт на этой машине. Проверяем и IPv4, и IPv6: Vite на macOS
+    (Node 17+) слушает localhost через IPv6 (::1) и на 127.0.0.1 не отвечает."""
+    for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+        try:
+            with socket.socket(family) as s:
+                s.settimeout(0.5)
+                if s.connect_ex((host, port)) == 0:
+                    return True
+        except OSError:  # IPv6 выключен в системе
+            continue
+    return False
 
 
 def wait_port(port: int, timeout: float, proc: subprocess.Popen | None = None) -> bool:
@@ -269,6 +277,12 @@ def stop(procs: list) -> None:
                     pass
 
 
+def fail_start(what: str, proc: subprocess.Popen, port: int) -> None:
+    if proc.poll() is not None:
+        fail(f"{what} не запустился (процесс завершился с кодом {proc.returncode})", f"Ошибка выше, в строках [{what.lower()}].")
+    fail(f"{what} не открыл порт {port} за 60 секунд", "Процесс работает, но порт не отвечает. Пришлите вывод выше — разберёмся.")
+
+
 def _install_signal_handlers() -> None:
     # Ctrl+C работает, даже если запуск унаследовал «игнорировать SIGINT» (например, из фонового задания).
     signal.signal(signal.SIGINT, signal.default_int_handler)
@@ -318,13 +332,13 @@ def main() -> None:
         backend = start("backend", [str(py), "-m", "uvicorn", "app.main:app", "--reload", "--port", str(BACKEND_PORT)], BACKEND, env)
         procs.append(("backend", backend))
         if not wait_port(BACKEND_PORT, 60, backend):
-            fail("Бэкенд не запустился", "Ошибка выше, в строках [backend].")
+            fail_start("Бэкенд", backend, BACKEND_PORT)
 
         say("Запускаю фронтенд…")
         frontend = start("frontend", [npm, "run", "dev", "--", "--port", str(FRONTEND_PORT), "--strictPort"], FRONTEND, env)
         procs.append(("frontend", frontend))
         if not wait_port(FRONTEND_PORT, 60, frontend):
-            fail("Фронтенд не запустился", "Ошибка выше, в строках [frontend].")
+            fail_start("Фронтенд", frontend, FRONTEND_PORT)
 
         url = f"http://localhost:{FRONTEND_PORT}"
         print()
