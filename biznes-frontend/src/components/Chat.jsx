@@ -67,6 +67,8 @@ const fromServer = (m) => ({
   isError: !!m.error,
   trace: (m.trace || []).map((t) => (t.ok === false ? `${t.tool} ✗` : t.tool)),
   pending_actions: m.pending_actions || [],
+  purchaseLines: m.trace?.filter((entry) => entry.tool === 'suggest_purchase' && entry.purchase_lines?.length).at(-1)?.purchase_lines
+    ?? m.trace?.filter((entry) => entry.purchase_lines?.length).at(-1)?.purchase_lines,
 });
 
 // Названия инструментов агента → понятные пользователю подписи «Смотрел: …»
@@ -75,7 +77,7 @@ const TOOL_RU = {
   get_product_sales_history: 'история продаж товара', find_product: 'каталог товаров', list_low_stock: 'остатки склада',
   list_slow_movers: 'залежавшиеся товары', find_client: 'клиенты', get_profit_summary: 'прибыль',
   search_knowledge_base: 'база знаний', list_uploaded_files: 'загруженные файлы', read_uploaded_file: 'приложенный файл',
-  create_client: 'создание клиента', create_order: 'создание заказа', record_expense: 'запись расхода',
+  suggest_purchase: 'черновик закупки', create_client: 'создание клиента', create_order: 'создание заказа', record_expense: 'запись расхода',
 };
 const toolRu = (t) => {
   const failed = t.endsWith(' ✗');
@@ -89,7 +91,7 @@ const EXAMPLES = [
   ['Вопрос по законам РБ', 'Ответ со ссылкой на документ', ['Какую форму налогообложения выбрать?', 'Какие взносы платит ИП в ФСЗН?']],
 ];
 
-export default function Chat({ initial, clear, company, onEvent, onImportOrders }) {
+export default function Chat({ initial, clear, company, onEvent, onImportOrders, onPurchase }) {
   // История чатов хранится на сервере у каждого пользователя своя, в браузере ничего не храним
   const [chats, setChats] = useState([]); // [{id, title, updated_at}]
   const [activeId, setActiveId] = useState(null); // null — новый чат, ещё не отправлен
@@ -396,6 +398,9 @@ export default function Chat({ initial, clear, company, onEvent, onImportOrders 
                 )}
                 {m.files && m.files.length > 0 && <div className="src">Файлы: {m.files.join(', ')}</div>}
                 {m.trace && m.trace.length > 0 && <div className="src">Смотрел: {m.trace.map(toolRu).join(', ')}</div>}
+                {onPurchase && !!m.purchaseLines?.length && (
+                  <button type="button" className="btn sm secondary" onClick={() => onPurchase(m.purchaseLines)}>Открыть черновик закупки</button>
+                )}
                 {m.pending_actions?.map((a) => (
                   <div className={`pend ${a.status === 'confirmed' ? 'done' : a.status === 'pending' || a.status === 'busy' ? '' : 'off'}`} key={a.id}>
                     <b>{a.summary}</b>

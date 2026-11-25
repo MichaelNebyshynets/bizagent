@@ -58,7 +58,7 @@ def import_sales(db, principal: Principal, content: bytes, confirm: bool, filena
         cur.execute("SELECT sku, id, cost FROM products WHERE company_id = %s", (company_id,))
         products = {sku: (product_id, cost) for sku, product_id, cost in cur.fetchall()}
         cur.execute(
-            "SELECT external_sale_id FROM orders WHERE company_id = %s AND external_sale_id = ANY(%s)",
+            "SELECT external_sale_id FROM orders WHERE company_id = %s AND status = 'completed' AND external_sale_id = ANY(%s)",
             (company_id, list(orders)),
         )
         existing = {row[0] for row in cur.fetchall()}
@@ -131,7 +131,7 @@ def import_sales(db, principal: Principal, content: bytes, confirm: bool, filena
 def list_sales_imports(db, company_id: int, before: int | None, limit: int = 20) -> dict:
     with closing(db._get_conn()) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(
-            """SELECT id, author, user_id, filename, created_at, orders, rows, duplicates, revenue::text AS revenue,
+            """SELECT id, author, user_id, filename, created_at, orders, rows, duplicates, revenue::text AS revenue, reversed_at, reversed_by, reversed_by_name,
                       EXISTS (SELECT 1 FROM orders o WHERE o.company_id = s.company_id AND o.sales_import_id = s.id) AS has_orders
                FROM sales_imports s
                WHERE company_id = %s AND (%s::bigint IS NULL OR id < %s)

@@ -22,7 +22,7 @@ def main() -> None:
 
     with closing(psycopg2.connect(Settings.from_env().database_url)) as conn, conn, conn.cursor() as cur:
         cur.execute(
-            "UPDATE users SET password_hash = %s WHERE LOWER(email) = %s",
+            "UPDATE users SET password_hash = %s, session_version = session_version + 1 WHERE LOWER(email) = %s",
             (hash_password(password), args.email.strip().lower()),
         )
         if cur.rowcount != 1:

@@ -27,6 +27,8 @@ export const TABS = [
   { id: 'dash', label: 'Обзор', icon: 'home', hint: 'что происходит в бизнесе сейчас' },
   { id: 'orders', label: 'Заказы', icon: 'orders', hint: 'найти продажи и позиции заказа' },
   { id: 'an', label: 'Аналитика', icon: 'chart', hint: 'разобраться в цифрах' },
+  { id: 'purchases', label: 'Закупки', icon: 'orders', hint: 'подготовить закупку' },
+  { id: 'staff', label: 'Сотрудники', icon: 'gear', hint: 'настроить доступ' },
   { id: 'chat', label: 'Ассистент', icon: 'chat', hint: 'спросить и внести изменения' },
   { id: 'kb', label: 'База знаний', icon: 'book', hint: 'проверить по документам' },
   { id: 'prof', label: 'Профиль бизнеса', icon: 'gear', hint: 'данные компании и доступ', settings: true },

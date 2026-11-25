@@ -46,10 +46,11 @@ def verify_password(password: str, stored: str | None) -> bool:
         return False
 
 
-def create_access_token(user_id: int, company_id: int, role: str, name: str) -> str:
+def create_access_token(user_id: int, company_id: int, role: str, name: str, session_version: int = 0) -> str:
     """Генерация JWT-токена с данными пользователя."""
     payload = {
         "auth_version": 2,
+        "session_version": session_version,
         "user_id": user_id,
         "company_id": company_id,
         "role": role,
@@ -76,7 +77,8 @@ def principal_from_token(token: str | None, *, allow_demo: bool = False) -> Prin
             user_id=payload["user_id"],
             company_id=payload["company_id"],
             role=payload["role"],
-            name=payload.get("name", "")
+            name=payload.get("name", ""),
+            session_version=payload.get("session_version", 0)
         )
     except (jwt.PyJWTError, KeyError):
         return None

@@ -67,11 +67,6 @@ def main() -> None:
     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
     cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS external_sale_id VARCHAR(100)")
     cur.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_company_external_sale
-        ON orders (company_id, external_sale_id) WHERE external_sale_id IS NOT NULL
-    """)
-
-    cur.execute("""
         CREATE TABLE IF NOT EXISTS sales_imports (
             id BIGSERIAL PRIMARY KEY,
             company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -93,6 +88,37 @@ def main() -> None:
             WHERE sales_import_id IS NOT NULL;
         CREATE INDEX IF NOT EXISTS idx_orders_company_date ON orders (company_id, created_at DESC, id DESC);
         CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id);
+    """)
+
+    cur.execute("""
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INT NOT NULL DEFAULT 0;
+        ALTER TABLE sales_imports ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ;
+        ALTER TABLE sales_imports ADD COLUMN IF NOT EXISTS reversed_by INT;
+        ALTER TABLE sales_imports ADD COLUMN IF NOT EXISTS reversed_by_name TEXT;
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_active_orders_company_external_sale
+            ON orders (company_id, external_sale_id) WHERE external_sale_id IS NOT NULL AND status = 'completed';
+        DROP INDEX IF EXISTS uq_orders_company_external_sale;
+
+        CREATE TABLE IF NOT EXISTS purchase_orders (
+            id BIGSERIAL PRIMARY KEY,
+            company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            user_id INT NOT NULL,
+            author TEXT NOT NULL,
+            supplier VARCHAR(255) NOT NULL,
+            request_id UUID NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (company_id, request_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_purchase_orders_company ON purchase_orders (company_id, id DESC);
+        CREATE TABLE IF NOT EXISTS purchase_order_items (
+            purchase_order_id BIGINT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+            product_id INT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+            product_name VARCHAR(255) NOT NULL,
+            sku VARCHAR(100) NOT NULL,
+            quantity INT NOT NULL CHECK (quantity > 0),
+            PRIMARY KEY (purchase_order_id, product_id)
+        );
     """)
 
     if os.getenv("SEED_DEMO_DATA", "1") == "1" and count(cur, "companies") == 0:
