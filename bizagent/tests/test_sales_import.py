@@ -16,7 +16,7 @@ def test_sales_import_preview_confirm_and_duplicate():
     cursor = db._get_conn.return_value.cursor.return_value.__enter__.return_value
     products = [("ONE", 11, 5), ("TWO", 12, 4)]
     cursor.fetchall.side_effect = [products, [], products, [], products, [("EXT-1",)]]
-    cursor.fetchone.return_value = (42,)
+    cursor.fetchone.side_effect = [(42,), (17,)]
 
     preview = import_sales(db, PRINCIPAL, CSV, confirm=False, filename=FILENAME)
     assert preview == {
@@ -34,6 +34,8 @@ def test_sales_import_preview_confirm_and_duplicate():
     history_inserts = [call for call in cursor.execute.call_args_list if "INSERT INTO sales_imports" in call.args[0]]
     assert len(history_inserts) == 1
     assert history_inserts[0].args[1] == (7, 3, "Анна", FILENAME, 1, 2, 0, Decimal("41.00"))
+
+    assert cursor.execute.call_args.args[1] == (17, 7, [42])
 
     repeated = import_sales(db, PRINCIPAL, CSV, confirm=True, filename=FILENAME)
     assert repeated["duplicates"] == 2

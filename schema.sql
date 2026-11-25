@@ -80,6 +80,12 @@ CREATE TABLE IF NOT EXISTS sales_imports (
 );
 CREATE INDEX IF NOT EXISTS idx_sales_imports_company_id ON sales_imports (company_id, id DESC);
 
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS sales_import_id BIGINT REFERENCES sales_imports(id);
+CREATE INDEX IF NOT EXISTS idx_orders_company_import ON orders (company_id, sales_import_id)
+    WHERE sales_import_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_company_date ON orders (company_id, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id);
+
 CREATE TABLE IF NOT EXISTS expenses (
     id SERIAL PRIMARY KEY,
     company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,

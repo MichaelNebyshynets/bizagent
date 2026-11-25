@@ -7,6 +7,7 @@
 import json
 import os
 from contextlib import asynccontextmanager, closing
+from datetime import date
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
@@ -31,6 +32,7 @@ from .kb import KnowledgeBase
 from .llm.base import LLMProvider
 from .mock_data import MockDB
 from .overview import build_overview
+from .order_register import get_order, list_orders
 from .db_postgres import PostgresDB
 from .sales_import import import_sales, list_sales_imports
 from .context import ToolContext
@@ -202,6 +204,34 @@ def sales_import_history(
     rt: Runtime = Depends(get_runtime),
 ):
     return list_sales_imports(sales_db(principal, rt), principal.company_id, before)
+
+
+@router.get("/orders")
+def orders(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    number: str | None = Query(default=None, max_length=100),
+    import_id: int | None = Query(default=None, ge=1, le=2**63 - 1),
+    before: int | None = Query(default=None, ge=1, le=2**31 - 1),
+    principal: Principal = Depends(get_principal),
+    rt: Runtime = Depends(get_runtime),
+):
+    if not isinstance(rt.db, PostgresDB):
+        raise HTTPException(409, "Реестр заказов доступен с PostgreSQL")
+    return list_orders(rt.db, principal.company_id, date_from, date_to, number, import_id, before)
+
+
+@router.get("/orders/{order_id}")
+def order_details(
+    order_id: int,
+    principal: Principal = Depends(get_principal),
+    rt: Runtime = Depends(get_runtime),
+):
+    if not isinstance(rt.db, PostgresDB):
+        raise HTTPException(409, "Реестр заказов доступен с PostgreSQL")
+    if not 1 <= order_id <= 2**31 - 1:
+        raise HTTPException(404, "Заказ не найден")
+    return get_order(rt.db, principal.company_id, order_id)
 
 
 @router.get("/overview")
