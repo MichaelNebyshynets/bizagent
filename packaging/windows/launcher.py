@@ -7,7 +7,6 @@ import msvcrt
 import os
 import secrets
 import shutil
-import signal
 import socket
 import subprocess
 import sys
@@ -36,16 +35,29 @@ def runtime():
     archive = DATA / "ollama.download"
     for attempt in range(3):
         try:
+            offset = archive.stat().st_size if archive.exists() else 0
+            headers = {"Range": f"bytes={offset}-"} if offset else {}
+            if offset != 1934442294:
+                request = urllib.request.Request(URL, headers=headers)
+                with urllib.request.urlopen(request, timeout=90) as response:
+                    resume = offset and response.status == 206
+                    if resume and not response.headers.get("Content-Range", "").startswith(f"bytes {offset}-"):
+                        raise ValueError("Неверный диапазон при продолжении загрузки.")
+                    total = offset if resume else 0
+                    with archive.open("ab" if resume else "wb") as out:
+                        while chunk := response.read(1024 * 1024):
+                            out.write(chunk)
+                            total += len(chunk)
+                            if total // (16 << 20) != (total-len(chunk)) // (16 << 20):
+                                print(f"Загрузка Ollama: {total >> 20} из 1845 МиБ", flush=True)
+            if archive.stat().st_size < 1934442294:
+                raise OSError("Загрузка прервалась. Повторяем с сохранённого места.")
             digest = hashlib.sha256()
-            with urllib.request.urlopen(URL, timeout=90) as response, archive.open("wb") as out:
-                total = 0
-                while chunk := response.read(1024 * 1024):
-                    out.write(chunk)
-                    digest.update(chunk)
-                    total += 1
-                    if total % 16 == 0:
-                        print(f"Загрузка Ollama: {total} МиБ", flush=True)
+            with archive.open("rb") as downloaded:
+                while block := downloaded.read(4 << 20):
+                    digest.update(block)
             if digest.hexdigest() != DIGEST:
+                archive.unlink()
                 raise ValueError("Не совпала контрольная сумма Ollama.")
             break
         except (OSError, ValueError) as exc:
@@ -150,7 +162,14 @@ def main():
         cleanup.callback(stop_child, ollama)
         models = wait_http(OLLAMA + "/api/tags", ollama)
         if MODEL not in {item["name"] for item in models["models"]}:
-            run([exe, "pull", MODEL])
+            for attempt in range(3):
+                try:
+                    run([exe, "pull", MODEL])
+                    break
+                except subprocess.CalledProcessError:
+                    if attempt == 2:
+                        raise
+                    time.sleep(3)
         api = subprocess.Popen([sys.executable, "-m", "uvicorn", "desktop_server:app", "--host", "127.0.0.1", "--port", "18420"],
                                cwd=ROOT / "bizagent", stdout=log, stderr=log)
         cleanup.callback(stop_child, api)
@@ -170,4 +189,3 @@ if __name__ == "__main__":
         print(f"Ошибка: {exc}\nЖурналы: {DATA}")
         input("Нажмите Enter для выхода.")
         sys.exit(1)
-

@@ -15,7 +15,7 @@ WizardStyle=modern
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 [Files]
-Source: "{#Stage}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "{#Stage}\*"; DestDir: "{app}"; Excludes: "pgsql\include\*,*\__pycache__\*,*\.pytest_cache\*,bizagent\tests\*,python\site-packages\pip\*,python\site-packages\setuptools\*"; Flags: recursesubdirs createallsubdirs ignoreversion
 [Icons]
 Name: "{group}\БизнесПомощник"; Filename: "{app}\python\python.exe"; Parameters: """{app}\launcher.py"""; WorkingDir: "{app}"
 Name: "{autodesktop}\БизнесПомощник"; Filename: "{app}\python\python.exe"; Parameters: """{app}\launcher.py"""; WorkingDir: "{app}"

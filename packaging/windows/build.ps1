@@ -14,17 +14,12 @@ $py = Download "https://www.python.org/ftp/python/3.10.11/python-3.10.11-embed-a
 Expand-Archive $py "$stage/python"
 @("python310.zip",".","../bizagent","../","site-packages","import site") | Set-Content "$stage/python/python310._pth" -Encoding ascii
 python -m pip install --only-binary :all: --target "$stage/python/site-packages" -r "$PSScriptRoot/requirements.lock"
-$archive = Download "https://get.enterprisedb.com/postgresql/postgresql-18.6-1-windows-x64-binaries.zip" pg.zip ""
+$archive = Download "https://get.enterprisedb.com/postgresql/postgresql-18.7-2-windows-x64-binaries.zip" pg.zip "74f3740a2e7844118857f297c2067d226f8f2b0652de96022ce54bb27cd60a79"
 Expand-Archive $archive "$build/edb"
 $env:PGROOT = "$stage/pgsql"
 New-Item -ItemType Directory $env:PGROOT | Out-Null
-$manifest = Get-Content "$PSScriptRoot/postgres-files.json" -Raw | ConvertFrom-Json -AsHashtable
-foreach ($rel in $manifest.Keys) {
-    $file = Join-Path "$build/edb/pgsql" $rel
-    if ((Get-FileHash $file).Hash -ne $manifest[$rel]) { throw "Postgres checksum: $rel" }
-    $dest = Join-Path $env:PGROOT $rel
-    [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($dest)) | Out-Null
-    Copy-Item -LiteralPath $file -Destination $dest
+foreach ($part in "bin","lib","share") {
+    Copy-Item "$build/edb/pgsql/$part" $env:PGROOT -Recurse
 }
 Copy-Item "$build/edb/pgsql/include" $env:PGROOT -Recurse
 Copy-Item "$build/edb/pgsql/*license*.txt" $env:PGROOT
