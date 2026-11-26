@@ -22,6 +22,15 @@ jobs:
       - working-directory: bizagent
         run: python -m pytest -q
       - run: ./packaging/windows/build.ps1 -Output "$env:RUNNER_TEMP/dist"
+      - name: Verify installed application with PostgreSQL and live Ollama
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP "installed"
+          $p = Start-Process -Wait -PassThru -WindowStyle Hidden "$env:RUNNER_TEMP/dist/BizAgent-Setup.exe" -ArgumentList "/VERYSILENT /NORESTART /DIR=`"$destination`""
+          if ($p.ExitCode) { throw "Installation failed $($p.ExitCode)" }
+          & "$destination/python/python.exe" -X utf8 packaging/windows/verify_install.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $p = Start-Process -Wait -PassThru -WindowStyle Hidden "$destination/unins000.exe" -ArgumentList "/VERYSILENT /NORESTART"
+          if ($p.ExitCode -or !(Test-Path "$env:LOCALAPPDATA/BizAgent/data/postgres/PG_VERSION")) { throw "Uninstall persistence failed" }
       - uses: actions/upload-artifact@v4
         with:
           name: BizAgent-Windows-x64
