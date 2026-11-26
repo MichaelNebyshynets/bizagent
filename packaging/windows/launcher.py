@@ -122,7 +122,7 @@ def main():
         keys = json.loads(config.read_text())
         os.environ.update(DATABASE_URL=f"host=127.0.0.1 port=18422 user=bizagent password={keys['db']} dbname=postgres",
                           JWT_SECRET=keys["jwt"], DB_BACKEND="postgres", LLM_PROVIDER="openai_compat",
-                          LLM_MODEL=MODEL, LLM_BASE_URL=OLLAMA + "/v1", LLM_TIMEOUT_S="240",
+                          LLM_MODEL=MODEL, LLM_BASE_URL=OLLAMA + "/v1", LLM_TIMEOUT_S="900",
                           UPLOAD_DIR=str(DATA / "uploads"), OLLAMA_HOST="127.0.0.1:18421",
                           OLLAMA_MODELS=str(DATA / "models"), PYTHONUTF8="1")
         log = cleanup.enter_context((DATA / "services.log").open("ab"))

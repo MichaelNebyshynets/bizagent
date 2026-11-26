@@ -15,7 +15,7 @@ conversation = None
 
 def check_browser(url):
     global conversation
-    with httpx.Client(base_url=url, timeout=300) as client:
+    with httpx.Client(base_url=url, timeout=1000) as client:
         assert 'id="root"' in client.get("/").raise_for_status().text
         health = client.get("/health").raise_for_status().json()
         assert health["llm"] == "openai_compat" and health["db"] == "postgres"

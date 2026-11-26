@@ -31,6 +31,11 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $p = Start-Process -Wait -PassThru -WindowStyle Hidden "$destination/unins000.exe" -ArgumentList "/VERYSILENT /NORESTART"
           if ($p.ExitCode -or !(Test-Path "$env:LOCALAPPDATA/BizAgent/data/postgres/PG_VERSION")) { throw "Uninstall persistence failed" }
+      - name: Show local runtime diagnostics on failure
+        if: failure()
+        run: |
+          $log = "$env:LOCALAPPDATA/BizAgent/data/services.log"
+          if (Test-Path $log) { Get-Content $log -Tail 100 }
       - uses: actions/upload-artifact@v4
         with:
           name: BizAgent-Windows-x64
