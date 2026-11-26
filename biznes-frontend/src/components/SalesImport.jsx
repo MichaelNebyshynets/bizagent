@@ -17,7 +17,7 @@ export default function SalesImport({ file, onClose, onImported }) {
       body.append('file', file)
       body.append('confirm', String(confirm))
       const token = localStorage.getItem('auth_token')
-      const response = await fetch('http://localhost:8000/agent/sales/import', {
+      const response = await fetch('/agent/sales/import', {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body,

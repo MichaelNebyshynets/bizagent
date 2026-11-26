@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Icon, PageHead } from './ui'
 
-const API = 'http://localhost:8000'
+const API = ''
 
 // Список совпадает с документами в bizagent/kb_docs (TITLE, DOC_DATE, SOURCE_URL).
 // Потом заменить на запрос к бэкенду, когда появится эндпоинт со списком документов.

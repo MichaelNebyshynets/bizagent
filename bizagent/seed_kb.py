@@ -3,13 +3,7 @@ from __future__ import annotations
 import os
 import psycopg2
 
-DB_CONFIG = {
-    "dbname": "bizagent_db",
-    "user": "postgres",
-    "password": "postgres",
-    "host": "localhost",
-    "port": 5432
-}
+from app.config import Settings
 
 DOCS_DIR = "kb_docs"
 
@@ -39,7 +33,7 @@ def seed_files():
         print(f"Папка {DOCS_DIR} не найдена!")
         return
 
-    conn = psycopg2.connect(**DB_CONFIG)
+    conn = psycopg2.connect(Settings.from_env().database_url)
     cur = conn.cursor()
     
     print("Чтение файлов базы знаний из папки...")

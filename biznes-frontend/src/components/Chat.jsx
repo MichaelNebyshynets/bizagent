@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 import SalesImport from './SalesImport';
 import SalesImportHistory from './SalesImportHistory';
 
-const API = 'http://localhost:8000';
+const API = '';
 const ACCEPT = '.txt,.md,.csv,.xlsx,.docx,.pdf';
 const MAX_MB = 10; // совпадает с MAX_FILE_BYTES на бэкенде (app/files.py)
 const MAX_FILES = 5; // совпадает с ChatIn.file_ids (app/main.py)

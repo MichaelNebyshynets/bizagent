@@ -16,7 +16,7 @@ export function Login({ onLogin }) {
 
   useEffect(() => {
     const controller = new AbortController()
-    fetch('http://localhost:8000/health', { signal: controller.signal })
+    fetch('/health', { signal: controller.signal })
       .then((response) => response.ok ? response.json() : null)
       .then((data) => { if (!controller.signal.aborted) setDemoMode(data?.db === 'mock') })
       .catch(() => {})
@@ -36,7 +36,7 @@ export function Login({ onLogin }) {
     setError('')
     setLoading(true)
     try {
-      const response = await fetch(`http://localhost:8000/auth/${demo ? 'demo' : 'login'}`, {
+      const response = await fetch(`/auth/${demo ? 'demo' : 'login'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(demo ? { email: address } : { email: address, password }),
@@ -55,7 +55,7 @@ export function Login({ onLogin }) {
     } catch (err) {
       console.error('Login error:', err)
       setError(err.message === 'Failed to fetch'
-        ? 'Сервер не отвечает. Проверьте, что бэкенд запущен на порту 8000.'
+        ? 'Сервер не отвечает. Откройте окно БизнесПомощника и проверьте сообщение о запуске.'
         : err.message)
     } finally {
       setLoading(false)
