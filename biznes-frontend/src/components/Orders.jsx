@@ -11,7 +11,7 @@ const dateLabel = (date) => date.split('-').reverse().join('.')
 
 async function load(path, signal) {
   const token = localStorage.getItem('auth_token')
-  const response = await fetch(`http://localhost:8000/agent/orders${path}`, {
+  const response = await fetch(`/agent/orders${path}`, {
     signal, headers: { Authorization: `Bearer ${token}` },
   })
   const data = await response.json()

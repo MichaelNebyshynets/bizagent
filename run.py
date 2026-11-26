@@ -177,7 +177,7 @@ def ensure_postgres(py: Path, env: dict) -> None:
             fail("Postgres не запущен, а Docker не найден",
                  "Установите и запустите Docker Desktop, либо запустите без базы: python run.py --mock")
         say("Запускаю Postgres в Docker (docker compose up -d postgres)…")
-        if run(compose + ["up", "-d", "postgres"], ROOT) != 0:
+        if run(compose + ["-f", "docker-compose.dev.yml", "up", "-d", "postgres"], ROOT) != 0:
             fail("docker compose не смог запустить Postgres", "Проверьте, что Docker Desktop запущен (иконка кита в трее/строке меню).")
         if not wait_port(5432, 60):
             fail("Postgres не открыл порт 5432 за минуту", "Посмотрите логи: docker compose logs postgres")
@@ -363,3 +363,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

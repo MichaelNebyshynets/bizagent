@@ -27,7 +27,7 @@ beforeAll(() => {
       body = fd;
     }
     seen.push({ url, method: opts.method || 'GET', body: typeof opts.body === 'string' ? JSON.parse(opts.body) : null });
-    return ufetch(url, { ...opts, body });
+    return ufetch(new URL(url, 'http://localhost:8000'), { ...opts, body });
   };
   Element.prototype.scrollIntoView = () => {};
   window.confirm = () => true; // «Удалить чат?» — да

@@ -1,6 +1,6 @@
 export async function workflowApi(path, { method = 'GET', body, signal } = {}) {
   const token = localStorage.getItem('auth_token')
-  const response = await fetch(`http://localhost:8000/agent${path}`, {
+  const response = await fetch(`/agent${path}`, {
     method, signal,
     headers: {
       Authorization: `Bearer ${token}`,

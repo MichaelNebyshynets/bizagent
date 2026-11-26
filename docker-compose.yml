@@ -1,14 +1,59 @@
 services:
+  keys:
+    build: .
+    command: ["python", "../serve.py", "--init"]
+    volumes: [keys:/keys]
   postgres:
-    image: ankane/pgvector:v0.5.1
-    container_name: biz_postgres
+    image: pgvector/pgvector:0.8.2-pg17
+    depends_on:
+      keys: {condition: service_completed_successfully}
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
       POSTGRES_DB: bizagent_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+      POSTGRES_PASSWORD_FILE: /keys/db
+    volumes: [keys:/keys:ro, postgres17:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "bizagent_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+  ollama:
+    image: ollama/ollama:0.12.11
+    volumes: [models:/root/.ollama]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+  model:
+    image: ollama/ollama:0.12.11
+    depends_on:
+      ollama: {condition: service_healthy}
+    environment: {OLLAMA_HOST: "http://ollama:11434"}
+    command: ["pull", "qwen2.5:7b"]
+  backend:
+    build: .
+    environment:
+      LLM_PROVIDER: openai_compat
+      LLM_BASE_URL: http://ollama:11434/v1
+      LLM_MODEL: qwen2.5:7b
+      LLM_TIMEOUT_S: 240
+      UPLOAD_DIR: /uploads
+    depends_on:
+      postgres: {condition: service_healthy}
+      model: {condition: service_completed_successfully}
+    volumes: [keys:/keys:ro, uploads:/uploads]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+  frontend:
+    build: biznes-frontend
+    ports: ["127.0.0.1:8080:80"]
+    depends_on:
+      backend: {condition: service_healthy}
 volumes:
-  pgdata:
+  postgres17: {}
+  models: {}
+  uploads: {}
+  keys: {}
