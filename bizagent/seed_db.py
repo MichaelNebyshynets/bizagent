@@ -1,10 +1,11 @@
+from app.config import Settings
 from datetime import date
 from app.db_postgres import PostgresDB
 from app.mock_data import seed as seed_mock, MockDB
 
 def main():
     print("Генерация данных в PostgreSQL...")
-    pg_db = PostgresDB()
+    pg_db = PostgresDB(Settings.from_env().database_url)
     
     # Чтобы использовать наш детерминированный генератор данных из mock_data.py
     # Мы сначала генерируем их в памяти, а потом переносим в PostgreSQL

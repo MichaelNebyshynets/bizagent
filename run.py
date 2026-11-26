@@ -90,10 +90,13 @@ def load_env() -> dict[str, str]:
 # ------------------------------------------------------------------ утилиты
 
 
-def port_open(port: int, host: str = "127.0.0.1") -> bool:
-    with socket.socket() as s:
-        s.settimeout(0.5)
-        return s.connect_ex((host, port)) == 0
+def port_open(port: int, host: str = "localhost") -> bool:
+    # create_connection пробует и IPv6, и IPv4: Vite на Windows может слушать только ::1
+    try:
+        with socket.create_connection((host, port), timeout=0.5):
+            return True
+    except OSError:
+        return False
 
 
 def wait_port(port: int, timeout: float, proc: subprocess.Popen | None = None) -> bool:
@@ -174,7 +177,7 @@ def ensure_postgres(py: Path, env: dict) -> None:
             fail("Postgres не запущен, а Docker не найден",
                  "Установите и запустите Docker Desktop, либо запустите без базы: python run.py --mock")
         say("Запускаю Postgres в Docker (docker compose up -d postgres)…")
-        if run(compose + ["up", "-d", "postgres"], ROOT) != 0:
+        if run(compose + ["-f", "docker-compose.dev.yml", "up", "-d", "postgres"], ROOT) != 0:
             fail("docker compose не смог запустить Postgres", "Проверьте, что Docker Desktop запущен (иконка кита в трее/строке меню).")
         if not wait_port(5432, 60):
             fail("Postgres не открыл порт 5432 за минуту", "Посмотрите логи: docker compose logs postgres")
@@ -290,6 +293,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Запуск БизнесПомощника одной командой")
     ap.add_argument("--mock", action="store_true", help="без Docker и Postgres: данные в памяти")
     ap.add_argument("--no-browser", action="store_true", help="не открывать браузер")
+    ap.add_argument("--set-password", metavar="EMAIL", help="задать пароль существующему пользователю PostgreSQL")
     args = ap.parse_args()
 
     check_layout()
@@ -298,6 +302,13 @@ def main() -> None:
     if args.mock:
         env["DB_BACKEND"] = "mock"
     env.setdefault("DB_BACKEND", "postgres")
+
+    if args.set_password:
+        if env["DB_BACKEND"] != "postgres":
+            ap.error("--set-password требует PostgreSQL")
+        py = ensure_backend_deps()
+        ensure_postgres(py, env)
+        raise SystemExit(run([str(py), "set_password.py", args.set_password], BACKEND, env=env))
 
     for port, what in ((BACKEND_PORT, "бэкенд"), (FRONTEND_PORT, "фронтенд")):
         if port_open(port):
@@ -308,7 +319,7 @@ def main() -> None:
     if env["DB_BACKEND"] == "postgres":
         ensure_postgres(py, env)
     else:
-        say("База: данные в памяти (--mock), вход по email недоступен, используйте демо-токен", "warn")
+        say("База: данные в памяти (--mock), доступен демо-вход", "warn")
 
     procs: list[tuple[str, subprocess.Popen]] = []
     try:

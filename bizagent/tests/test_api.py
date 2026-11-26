@@ -53,7 +53,7 @@ def test_chat_returns_message_and_trace():
     client, _ = make([call("list_low_stock"), say("Заканчиваются три товара.")])
     body = post_chat(client, OWNER).json()
     assert body["message"] == "Заканчиваются три товара."
-    assert body["trace"] == [{"tool": "list_low_stock", "args": {}, "ok": True}]
+    assert [(entry["tool"], entry["args"], entry["ok"]) for entry in body["trace"]] == [("list_low_stock", {}, True)]
 
 
 def test_confirm_flow_over_http():
@@ -188,3 +188,90 @@ def test_conversations_list_view_and_delete_are_per_user():
 
     assert client.delete(f"/agent/conversations/{c1}", headers=OWNER).status_code == 200
     assert [c["id"] for c in client.get("/agent/conversations", headers=OWNER).json()] == [c2]
+
+
+def test_overview_scoped_by_role_and_company():
+    client, _ = make([])
+    r = client.get("/agent/overview", headers=OWNER)
+    assert r.status_code == 200
+    o = r.json()
+    assert o["month"]["revenue"] > 0 and len(o["months"]) >= 12 and o["profit"] is not None
+    m = client.get("/agent/overview", headers=MANAGER).json()
+    assert m["profit"] is None  # менеджеру маржа недоступна
+    f = client.get("/agent/overview", headers=FLORA).json()
+    assert f["month"]["revenue"] != o["month"]["revenue"]  # данные другой компании
+    assert client.get("/agent/overview").status_code == 401
+
+
+def test_kb_search_requires_auth_and_returns_shape():
+    client, _ = make([])
+    assert client.get("/agent/kb/search?q=УСН").status_code == 401
+    r = client.get("/agent/kb/search?q=УСН", headers=OWNER)
+    assert r.status_code == 200 and r.json()["results"] == []  # в режиме mock база знаний пустая
+    assert client.get("/agent/kb/search?q=а", headers=OWNER).status_code == 422  # слишком короткий запрос
+
+
+def test_mock_demo_login():
+    client, _ = make([])
+    response = client.post("/auth/demo", json={"email": "owner@uyut.by"})
+    assert response.status_code == 200
+    assert response.json()["access_token"] == "demo-owner-uyut"
+    assert client.post("/auth/login", json={"email": "owner@uyut.by"}).status_code == 422
+
+
+def test_postgres_login_requires_password_and_rejects_demo_token(monkeypatch):
+    from dataclasses import replace
+    from unittest.mock import MagicMock
+
+    import jwt
+    from app import auth, main
+
+    secret = "x" * 32
+    monkeypatch.setattr(auth, "SECRET_KEY", secret)
+    monkeypatch.setattr(main, "SECRET_KEY", secret)
+    client, runtime = make([])
+    runtime.settings = replace(runtime.settings, db_backend="postgres")
+    runtime.db = MagicMock()
+    cursor = runtime.db._get_conn.return_value.cursor.return_value.__enter__.return_value
+    password = "a-long-password"
+    cursor.fetchall.return_value = [(1, 1, "owner", "Анна", auth.hash_password(password), True, 0, "Уютный дом")]
+    cursor.fetchone.return_value = ("owner", "Анна", 0)
+    assert client.get("/agent/tools", headers=OWNER).status_code == 401
+    assert client.post("/auth/demo", json={"email": "owner@uyut.by"}).status_code == 404
+    assert client.post("/auth/login", json={"email": "owner@uyut.by", "password": "wrong"}).status_code == 401
+    response = client.post("/auth/login", json={"email": "owner@uyut.by", "password": password})
+    assert response.status_code == 200
+    assert client.get("/agent/tools", headers={"Authorization": f"Bearer {response.json()['access_token']}"}).status_code == 200
+
+    headers = {"Authorization": f"Bearer {response.json()['access_token']}"}
+    cursor.fetchone.return_value = ("manager", "Анна", 1)
+    assert client.get("/agent/tools", headers=headers).status_code == 401
+    cursor.fetchone.return_value = None
+    assert client.get("/agent/tools", headers=headers).status_code == 401
+
+    old_token = jwt.encode({"user_id": 1, "company_id": 1, "role": "owner", "exp": 4102444800}, secret)
+    assert client.get("/agent/tools", headers={"Authorization": f"Bearer {old_token}"}).status_code == 401
+    invalid_password = "a" * 129
+    invalid = client.post("/auth/login", json={"email": "owner@uyut.by", "password": invalid_password})
+    assert invalid.status_code == 422
+    assert invalid_password not in invalid.text
+
+def test_chat_exposes_validated_purchase_draft():
+    client, runtime = make([])
+    product = runtime.db.products(1)[0]
+    runtime.llm = ScriptedLLM([
+        call("suggest_purchase", lines=[{"product_id": product.id, "quantity": 4}]),
+        say("Откройте черновик."),
+    ])
+    result = post_chat(client, OWNER).json()
+    assert result["pending_actions"] == []
+    assert result["trace"][0]["purchase_lines"] == [
+        {"product_id": product.id, "quantity": 4, "name": product.name, "sku": product.sku},
+    ]
+
+def test_low_stock_offers_purchase_draft_without_second_tool():
+    client, _ = make([call("list_low_stock", threshold=5), say("Есть товары для пополнения.")])
+    result = post_chat(client, OWNER).json()
+    assert result["trace"][0]["purchase_lines"]
+    assert all(line["quantity"] >= 5 for line in result["trace"][0]["purchase_lines"])
+    assert result["pending_actions"] == []

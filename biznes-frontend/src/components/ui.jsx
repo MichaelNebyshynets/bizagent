@@ -2,6 +2,7 @@
 
 const paths = {
   home: <path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />,
+  orders: <path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5" />,
   chart: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
   chat: <path d="M4 5h16v11H9l-5 4z" />,
   book: <path d="M4 4h7a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4zM20 4h-5a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h5z" />,
@@ -24,12 +25,15 @@ export function Icon({ name }) {
 // Порядок вкладок = порядок работы: увидеть → разобраться → спросить/сделать → проверить по закону.
 export const TABS = [
   { id: 'dash', label: 'Обзор', icon: 'home', hint: 'что происходит в бизнесе сейчас' },
+  { id: 'orders', label: 'Заказы', icon: 'orders', hint: 'найти продажи и позиции заказа' },
   { id: 'an', label: 'Аналитика', icon: 'chart', hint: 'разобраться в цифрах' },
+  { id: 'purchases', label: 'Закупки', icon: 'orders', hint: 'подготовить закупку' },
+  { id: 'staff', label: 'Сотрудники', icon: 'gear', hint: 'настроить доступ' },
   { id: 'chat', label: 'Ассистент', icon: 'chat', hint: 'спросить и внести изменения' },
   { id: 'kb', label: 'База знаний', icon: 'book', hint: 'проверить по документам' },
   { id: 'prof', label: 'Профиль бизнеса', icon: 'gear', hint: 'данные компании и доступ', settings: true },
 ]
-export const NEXT = { dash: 'an', an: 'chat', chat: 'kb', kb: 'dash', prof: 'dash' }
+export const NEXT = { dash: 'an', orders: 'an', an: 'chat', chat: 'kb', kb: 'dash', prof: 'dash' }
 
 export function PageHead({ company, tab, title, sub, children }) {
   const t = TABS.find((x) => x.id === tab)
@@ -46,6 +50,7 @@ export function PageHead({ company, tab, title, sub, children }) {
 
 export function NextStep({ tab, go }) {
   const n = TABS.find((x) => x.id === NEXT[tab])
+  if (!n) return null
   return (
     <div className="next">
       <div className="muted">Следующий шаг: {n.hint}</div>

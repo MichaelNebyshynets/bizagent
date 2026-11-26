@@ -20,3 +20,6 @@ uploaded_files/
 .idea/
 .vscode/
 *.log
+
+# Локальные демо-файлы
+/demo/

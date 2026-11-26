@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import SalesImport from './SalesImport';
+import SalesImportHistory from './SalesImportHistory';
 
-const API = 'http://localhost:8000';
+const API = '';
 const ACCEPT = '.txt,.md,.csv,.xlsx,.docx,.pdf';
 const MAX_MB = 10; // совпадает с MAX_FILE_BYTES на бэкенде (app/files.py)
 const MAX_FILES = 5; // совпадает с ChatIn.file_ids (app/main.py)
@@ -35,6 +37,10 @@ async function api(path, opts = {}) {
   return response.json();
 }
 
+function loadSalesImports(before, signal) {
+  return api(before ? `/agent/sales/imports?before=${before}` : '/agent/sales/imports', { signal });
+}
+
 const timeRu = (iso) => new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 const dateRu = (iso) => {
   if (!iso) return '';
@@ -61,6 +67,8 @@ const fromServer = (m) => ({
   isError: !!m.error,
   trace: (m.trace || []).map((t) => (t.ok === false ? `${t.tool} ✗` : t.tool)),
   pending_actions: m.pending_actions || [],
+  purchaseLines: m.trace?.filter((entry) => entry.tool === 'suggest_purchase' && entry.purchase_lines?.length).at(-1)?.purchase_lines
+    ?? m.trace?.filter((entry) => entry.purchase_lines?.length).at(-1)?.purchase_lines,
 });
 
 // Названия инструментов агента → понятные пользователю подписи «Смотрел: …»
@@ -69,7 +77,7 @@ const TOOL_RU = {
   get_product_sales_history: 'история продаж товара', find_product: 'каталог товаров', list_low_stock: 'остатки склада',
   list_slow_movers: 'залежавшиеся товары', find_client: 'клиенты', get_profit_summary: 'прибыль',
   search_knowledge_base: 'база знаний', list_uploaded_files: 'загруженные файлы', read_uploaded_file: 'приложенный файл',
-  create_client: 'создание клиента', create_order: 'создание заказа', record_expense: 'запись расхода',
+  suggest_purchase: 'черновик закупки', create_client: 'создание клиента', create_order: 'создание заказа', record_expense: 'запись расхода',
 };
 const toolRu = (t) => {
   const failed = t.endsWith(' ✗');
@@ -83,7 +91,7 @@ const EXAMPLES = [
   ['Вопрос по законам РБ', 'Ответ со ссылкой на документ', ['Какую форму налогообложения выбрать?', 'Какие взносы платит ИП в ФСЗН?']],
 ];
 
-export default function Chat({ initial, clear, company, onEvent }) {
+export default function Chat({ initial, clear, company, onEvent, onImportOrders, onPurchase }) {
   // История чатов хранится на сервере у каждого пользователя своя, в браузере ничего не храним
   const [chats, setChats] = useState([]); // [{id, title, updated_at}]
   const [activeId, setActiveId] = useState(null); // null — новый чат, ещё не отправлен
@@ -94,6 +102,12 @@ export default function Chat({ initial, clear, company, onEvent }) {
   const [uploading, setUploading] = useState(false);
   const [contextCategory, setContextCategory] = useState('Все');
   const [uploadedFile, setUploadedFile] = useState(null);
+  const [salesFile, setSalesFile] = useState(null);
+  const [salesFileVersion, setSalesFileVersion] = useState(0);
+  const [salesHistoryOpen, setSalesHistoryOpen] = useState(false);
+  const [salesHistoryVersion, setSalesHistoryVersion] = useState(0);
+  const fileMode = useRef('attachment');
+  const canImportSales = ['owner', 'accountant'].includes(localStorage.getItem('user_role'));
   // Загруженные файлы, которые приложатся к следующему сообщению: [{file_id, filename}]
   const [attachments, setAttachments] = useState([]);
   const [dragOver, setDragOver] = useState(false);
@@ -259,6 +273,26 @@ export default function Chat({ initial, clear, company, onEvent }) {
     }
   };
 
+  const chooseFile = (mode) => {
+    const picker = fileInputRef.current;
+    if (!picker) return;
+    fileMode.current = mode;
+    picker.accept = mode === 'sales' ? '.csv,text/csv' : ACCEPT;
+    picker.click();
+  };
+
+  const onFileChosen = (event) => {
+    const file = event.target.files[0];
+    event.target.value = '';
+    if (!file) return;
+    if (fileMode.current === 'sales') {
+      setSalesFile(file);
+      setSalesFileVersion((version) => version + 1);
+    } else {
+      uploadFile(file);
+    }
+  };
+
   const onDrop = (e) => {
     e.preventDefault();
     setDragOver(false);
@@ -279,6 +313,18 @@ export default function Chat({ initial, clear, company, onEvent }) {
           <p>Отвечает по данным вашей компании и документам базы знаний. Записи вносит только после вашего подтверждения.</p>
         </div>
       </div>
+
+      {salesFile && (
+        <SalesImport key={salesFileVersion} file={salesFile} onClose={() => setSalesFile(null)}
+          onImported={() => {
+            onEvent?.('upload');
+            setSalesHistoryVersion((value) => value + 1);
+          }} />
+      )}
+
+      {salesHistoryOpen && (
+        <SalesImportHistory key={salesHistoryVersion} load={loadSalesImports} onImportOrders={onImportOrders} onClose={() => setSalesHistoryOpen(false)} />
+      )}
 
       <div className="panel chat">
         <div className="chat-list">
@@ -352,6 +398,9 @@ export default function Chat({ initial, clear, company, onEvent }) {
                 )}
                 {m.files && m.files.length > 0 && <div className="src">Файлы: {m.files.join(', ')}</div>}
                 {m.trace && m.trace.length > 0 && <div className="src">Смотрел: {m.trace.map(toolRu).join(', ')}</div>}
+                {onPurchase && !!m.purchaseLines?.length && (
+                  <button type="button" className="btn sm secondary" onClick={() => onPurchase(m.purchaseLines)}>Открыть черновик закупки</button>
+                )}
                 {m.pending_actions?.map((a) => (
                   <div className={`pend ${a.status === 'confirmed' ? 'done' : a.status === 'pending' || a.status === 'busy' ? '' : 'off'}`} key={a.id}>
                     <b>{a.summary}</b>
@@ -396,14 +445,14 @@ export default function Chat({ initial, clear, company, onEvent }) {
                 accept={ACCEPT}
                 ref={fileInputRef}
                 style={{ display: 'none' }}
-                onChange={(e) => uploadFile(e.target.files[0])}
+                onChange={onFileChosen}
               />
               <button
                 type="button"
                 className="btn ghost icon"
                 title="Приложить файл"
                 aria-label="Приложить файл"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => chooseFile('attachment')}
                 disabled={uploading}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M20 11l-8.5 8.5a5 5 0 0 1-7-7L13 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L14 7" /></svg>
@@ -433,6 +482,17 @@ export default function Chat({ initial, clear, company, onEvent }) {
               <button type="submit" className="btn" disabled={busy}>Отправить</button>
             </form>
             <div className="comp-hint">
+              {canImportSales && <>
+                <button type="button" className="btn sm secondary" disabled={busy || !!salesFile}
+                  title="Записать продажи из CSV в аналитику" onClick={() => chooseFile('sales')}>
+                  Импортировать продажи
+                </button>
+                <a className="btn sm ghost" href={`${import.meta.env.BASE_URL}sales-template.csv`} download>
+                  Скачать шаблон CSV
+                </a>
+                <button type="button" className="btn sm secondary" aria-expanded={salesHistoryOpen}
+                  onClick={() => setSalesHistoryOpen((open) => !open)}>История импортов</button>
+              </>}
               <span>Enter — отправить, Shift+Enter — новая строка</span>
               <span>{uploadedFile ? `Последний файл: ${uploadedFile}` : `Файлы: txt, csv, xlsx, docx, pdf до ${MAX_MB} МБ, не больше ${MAX_FILES}`}</span>
             </div>

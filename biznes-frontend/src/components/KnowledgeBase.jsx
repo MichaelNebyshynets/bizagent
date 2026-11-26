@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Icon, PageHead } from './ui'
 
+const API = ''
+
 // Список совпадает с документами в bizagent/kb_docs (TITLE, DOC_DATE, SOURCE_URL).
 // Потом заменить на запрос к бэкенду, когда появится эндпоинт со списком документов.
 const DOCS = [
@@ -22,6 +24,20 @@ export default function KnowledgeBase({ company, onAsk }) {
   const [cat, setCat] = useState('Все')
   const [draft, setDraft] = useState('')
   const [query, setQuery] = useState('')
+  const [hits, setHits] = useState(null) // найденные фрагменты текста документов (null: поиск не запускался)
+  const [busy, setBusy] = useState(false)
+
+  async function search(text) {
+    setQuery(text)
+    if (text.trim().length < 2) { setHits(null); return }
+    setBusy(true)
+    try {
+      const token = localStorage.getItem('auth_token')
+      const r = await fetch(`${API}/agent/kb/search?q=${encodeURIComponent(text.trim())}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      setHits(r.ok ? (await r.json()).results : null)
+    } catch { setHits(null) }
+    setBusy(false)
+  }
 
   const q = query.trim().toLowerCase()
   const docs = DOCS.filter(([title, c]) => (cat === 'Все' || c === cat) && (!q || title.toLowerCase().includes(q)))
@@ -33,14 +49,29 @@ export default function KnowledgeBase({ company, onAsk }) {
       <div className="stack">
         <div className="notice">Это справочная информация по официальным документам, а не юридическая консультация. Перед важным решением сверьтесь с актуальной редакцией.</div>
 
-        <form className="search" onSubmit={(e) => { e.preventDefault(); setQuery(draft) }}>
+        <form className="search" onSubmit={(e) => { e.preventDefault(); search(draft) }}>
           <input className="input" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Поиск по документам: УСН, ФСЗН, касса…" aria-label="Поиск по документам" />
-          <button className="btn" type="submit">Найти</button>
+          <button className="btn" type="submit" disabled={busy}>Найти</button>
         </form>
 
         <div className="chips">
           {CATS.map((c) => <button key={c} className={`chip ${cat === c ? 'on' : ''}`} onClick={() => setCat(c)}>{c}</button>)}
         </div>
+
+        {hits && (
+          <section className="panel">
+            <div className="panel-head"><h2>Найдено в тексте документов</h2><span className="small muted">{hits.length}</span></div>
+            {hits.length ? hits.map((h, i) => (
+              <div className="doc" key={i}>
+                <div className="t">
+                  <h3>{h.title}</h3>
+                  <p className="small" style={{ marginTop: 6 }}>{h.text}</p>
+                  <div className="meta"><span>Редакция от {h.doc_date}</span><a href={h.source_url} target="_blank" rel="noopener noreferrer">Источник: {host(h.source_url)}</a></div>
+                </div>
+              </div>
+            )) : <div className="panel-body"><p className="muted">В тексте документов ничего не найдено. Ассистент в таком случае не отвечает по памяти.</p></div>}
+          </section>
+        )}
 
         <section className="panel">
           <div className="panel-head"><h2>Документы</h2><span className="small muted">{docs.length} из {DOCS.length}</span></div>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 const DEMO = [
   ['owner@uyut.by', 'Владелец, Уютный дом'],
@@ -9,41 +9,53 @@ const DEMO = [
 
 export function Login({ onLogin }) {
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [demoMode, setDemoMode] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const login = async (value) => {
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/health', { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => { if (!controller.signal.aborted) setDemoMode(data?.db === 'mock') })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [])
+
+  const login = async (value, demo = false) => {
     const address = value.trim()
     if (!/^\S+@\S+\.\S+$/.test(address)) {
       setError('Введите email в формате name@company.by')
       return
     }
+    if (!demo && !password) {
+      setError('Введите пароль')
+      return
+    }
     setError('')
     setLoading(true)
     try {
-      const response = await fetch('http://localhost:8000/auth/login', {
+      const response = await fetch(`/auth/${demo ? 'demo' : 'login'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: address }),
+        body: JSON.stringify(demo ? { email: address } : { email: address, password }),
       })
-      let data = await response.json()
-      // Бэкенд в режиме mock (без Postgres) отвечает 503: для демо-аккаунтов входим по демо-токену
-      if (response.status === 503 && DEMO.some(([a]) => a === address.toLowerCase())) {
-        const [user, domain] = address.toLowerCase().split('@')
-        const role = user // owner / manager / accountant
-        data = { access_token: `demo-${role}-${domain.split('.')[0]}`, role, name: DEMO.find(([a]) => a === address.toLowerCase())[1] }
-      } else if (!response.ok) {
-        throw new Error(data.detail || 'Такого пользователя нет. Проверьте адрес или войдите через демо-аккаунт.')
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(typeof data.detail === 'string' ? data.detail : 'Не удалось войти')
       }
       localStorage.setItem('auth_token', data.access_token)
       localStorage.setItem('user_name', data.name)
       localStorage.setItem('user_role', data.role)
+      localStorage.setItem('user_company', data.company || '')
       localStorage.setItem('user_email', address.toLowerCase())
+      setPassword('')
       onLogin(data)
     } catch (err) {
       console.error('Login error:', err)
       setError(err.message === 'Failed to fetch'
-        ? 'Сервер не отвечает. Проверьте, что бэкенд запущен на порту 8000.'
+        ? 'Сервер не отвечает. Откройте окно БизнесПомощника и проверьте сообщение о запуске.'
         : err.message)
     } finally {
       setLoading(false)
@@ -68,7 +80,7 @@ export function Login({ onLogin }) {
       <div className="login-main">
         <form className="login-box" onSubmit={(e) => { e.preventDefault(); login(email) }} noValidate>
           <h1>Вход</h1>
-          <p className="muted" style={{ margin: '6px 0 20px' }}>Войдите рабочим email, чтобы открыть данные своей компании.</p>
+          <p className="muted" style={{ margin: '6px 0 20px' }}>Введите email и пароль, чтобы открыть данные своей компании.</p>
 
           {error && <div className="form-err" role="alert">{error}</div>}
 
@@ -84,18 +96,23 @@ export function Login({ onLogin }) {
               placeholder="name@company.by"
             />
           </div>
+          <div className="field">
+            <label htmlFor="password">Пароль</label>
+            <input id="password" className="input" type="password" autoComplete="current-password"
+              value={password} maxLength={128} onChange={(e) => setPassword(e.target.value)} />
+          </div>
           <button type="submit" className="btn" disabled={loading} style={{ width: '100%', marginTop: 16, height: 38 }}>
             {loading ? 'Входим…' : 'Войти'}
           </button>
 
-          <div className="demo">
+          {demoMode && <div className="demo">
             <div className="small muted">Демо-аккаунты, вход в один клик</div>
             {DEMO.map(([address, who]) => (
-              <button key={address} type="button" className="demo-acc" disabled={loading} onClick={() => { setEmail(address); login(address) }}>
+              <button key={address} type="button" className="demo-acc" disabled={loading} onClick={() => { setEmail(address); login(address, true) }}>
                 <b>{address}</b><span>{who}</span>
               </button>
             ))}
-          </div>
+          </div>}
         </form>
       </div>
     </div>

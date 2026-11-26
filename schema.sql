@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
     email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash TEXT,
     role VARCHAR(50) NOT NULL CHECK (role IN ('owner', 'manager', 'accountant')),
     name VARCHAR(255) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS products (
 CREATE TABLE IF NOT EXISTS orders (
     id SERIAL PRIMARY KEY,
     company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    external_sale_id VARCHAR(100),
     client_id INT REFERENCES clients(id) ON DELETE SET NULL,
     status VARCHAR(50) NOT NULL DEFAULT 'completed' CHECK (status IN ('completed', 'cancelled')),
     created_at DATE NOT NULL DEFAULT CURRENT_DATE
@@ -59,6 +61,55 @@ CREATE TABLE IF NOT EXISTS order_items (
     qty INT NOT NULL CHECK (qty > 0),
     price NUMERIC(12, 2) NOT NULL,
     unit_cost NUMERIC(12, 2) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sales_imports (
+    id BIGSERIAL PRIMARY KEY,
+    company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    user_id INT NOT NULL,
+    author TEXT NOT NULL,
+    filename VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    orders INT NOT NULL,
+    rows INT NOT NULL,
+    duplicates INT NOT NULL,
+    revenue NUMERIC(24, 2) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sales_imports_company_id ON sales_imports (company_id, id DESC);
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS sales_import_id BIGINT REFERENCES sales_imports(id);
+CREATE INDEX IF NOT EXISTS idx_orders_company_import ON orders (company_id, sales_import_id)
+    WHERE sales_import_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_company_date ON orders (company_id, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INT NOT NULL DEFAULT 0;
+ALTER TABLE sales_imports ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ;
+ALTER TABLE sales_imports ADD COLUMN IF NOT EXISTS reversed_by INT;
+ALTER TABLE sales_imports ADD COLUMN IF NOT EXISTS reversed_by_name TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_active_orders_company_external_sale
+    ON orders (company_id, external_sale_id) WHERE external_sale_id IS NOT NULL AND status = 'completed';
+DROP INDEX IF EXISTS uq_orders_company_external_sale;
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+    id BIGSERIAL PRIMARY KEY,
+    company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    user_id INT NOT NULL,
+    author TEXT NOT NULL,
+    supplier VARCHAR(255) NOT NULL,
+    request_id UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (company_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_company ON purchase_orders (company_id, id DESC);
+CREATE TABLE IF NOT EXISTS purchase_order_items (
+    purchase_order_id BIGINT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+    product_id INT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    product_name VARCHAR(255) NOT NULL,
+    sku VARCHAR(100) NOT NULL,
+    quantity INT NOT NULL CHECK (quantity > 0),
+    PRIMARY KEY (purchase_order_id, product_id)
 );
 
 CREATE TABLE IF NOT EXISTS expenses (

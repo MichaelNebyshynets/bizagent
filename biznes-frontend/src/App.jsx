@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react'
 import Dashboard from './components/Dashboard'
 import Chat from './components/Chat'
 import Analytics from './components/Analytics'
+import Orders from './components/Orders'
+import Purchases from './components/Purchases'
+import Staff from './components/Staff'
 import KnowledgeBase from './components/KnowledgeBase'
 import Profile from './components/Profile'
 import { Login } from './components/Login'
@@ -20,6 +23,8 @@ const loadOnb = () => {
 
 export default function App() {
   const [tab, setTab] = useState('dash')
+  const [orderImport, setOrderImport] = useState(null)
+  const [purchaseLines, setPurchaseLines] = useState([])
   const [question, setQuestion] = useState('') // вопрос с других вкладок, уходит в чат
   const [menuOpen, setMenuOpen] = useState(false)
   const [toast, setToast] = useState('')
@@ -29,11 +34,13 @@ export default function App() {
   const [userName, setUserName] = useState(localStorage.getItem('user_name') || '')
   const [onb, setOnb] = useState(loadOnb)
 
-  const role = ROLE_RU[localStorage.getItem('user_role')] || localStorage.getItem('user_role') || ''
+  const userRole = localStorage.getItem('user_role')
+  const role = ROLE_RU[userRole] || userRole || ''
+  const canPurchase = ['owner', 'manager'].includes(userRole)
   const email = localStorage.getItem('user_email') || ''
-  const company = COMPANY_BY_DOMAIN[email.split('@')[1]] || 'Ваша компания'
+  const company = localStorage.getItem('user_company') || COMPANY_BY_DOMAIN[email.split('@')[1]] || 'Ваша компания'
 
-  const go = (id) => { setTab(id); setMenuOpen(false); window.scrollTo(0, 0) }
+  const go = (id) => { setOrderImport(null); setPurchaseLines([]); setTab(id); setMenuOpen(false); window.scrollTo(0, 0) }
   const ask = (q) => { setQuestion(q); go('chat') }
   const notify = (text) => { setToast(text); setTimeout(() => setToast(''), 2600) }
   const markDone = (step) => setOnb((prev) => {
@@ -57,7 +64,7 @@ export default function App() {
   }
 
   const handleLogout = () => {
-    ;['auth_token', 'user_name', 'user_role', 'user_email'].forEach((k) => localStorage.removeItem(k))
+    ;['auth_token', 'user_name', 'user_role', 'user_email', 'user_company'].forEach((k) => localStorage.removeItem(k))
     setToken(null)
     setUserName('')
     setMenuOpen(false)
@@ -101,7 +108,7 @@ export default function App() {
 
       <div className="tabs">
         <nav aria-label="Разделы">
-          {TABS.map((t) => (
+          {TABS.filter((t) => t.id === 'staff' ? userRole === 'owner' : t.id !== 'purchases' || canPurchase).map((t) => (
             <button
               key={t.id}
               className={`${tab === t.id ? 'on' : ''} ${t.settings ? 'settings' : ''}`}
@@ -118,12 +125,17 @@ export default function App() {
       <main>
         <div className="page">
           {tab === 'dash' && <Dashboard {...common} userName={userName} onb={onb} />}
-          {tab === 'an' && <Analytics {...common} />}
+          {tab === 'orders' && <Orders key={orderImport?.id ?? "all"} company={company} importSelection={orderImport} clearImport={() => setOrderImport(null)} />}
+          {tab === 'purchases' && canPurchase && <Purchases {...common} suggestedLines={purchaseLines} />}
+          {tab === 'staff' && userRole === 'owner' && <Staff company={company} currentEmail={email} />}
+          {tab === 'an' && <Analytics {...common} canPurchase={canPurchase} />}
           {tab === 'chat' && (
             <Chat
               initial={question}
               clear={() => setQuestion('')}
               company={company}
+              onPurchase={canPurchase ? (lines) => { go('purchases'); setPurchaseLines(lines) } : undefined}
+              onImportOrders={(item) => { go('orders'); setOrderImport({ id: item.id, filename: item.filename }) }}
               onEvent={(e) => markDone(e === 'upload' ? 'data' : 'ask')}
             />
           )}
